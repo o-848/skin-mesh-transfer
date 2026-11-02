@@ -1,0 +1,18 @@
+// o-848 Skin Mesh Transfer - installer
+// part of o-848 Tools / Copyright (c) 2026 OhashiYa / MIT License
+//
+// Drag and drop this file into the Maya viewport to install.
+// All install steps are done in installer/install.py.
+
+global proc o848SmtInstallLocator() {}
+
+{
+    string $info = `whatIs o848SmtInstallLocator`;
+    string $melPath = `substitute "^Mel procedure found in: " $info ""`;
+    string $py = dirname($melPath) + "/installer/install.py";
+
+    if (!`filetest -f $py`) {
+        error ("o-848 Skin Mesh Transfer: installer not found: " + $py);
+    }
+    python("import runpy; runpy.run_path(r'''" + $py + "''', run_name='__main__')");
+}
