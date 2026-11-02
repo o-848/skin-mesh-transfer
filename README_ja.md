@@ -66,25 +66,34 @@ o848_skin_mesh_transfer.show_ui()
 
 読み込みは元に戻せないので、事前にシーンを保存してください。
 
-### File Location（保存先）
+### 1. 書き出し（Export from the source scene）
 
 | 項目 | 説明 |
 |---|---|
-| Temp folder (default) | Maya の一時フォルダを使います。毎回上書きされます。 |
-| Custom folder | 任意のフォルダとファイル名を指定します。ファイルを残したいときや、他の人に渡すときに使います。 |
-| Select Existing File... | 読み込む `.ma` ファイルを選びます。 |
+| Save to: Temp folder | Maya の一時フォルダに保存します。書き出すたびに上書きされます。（既定） |
+| Save to: Custom folder | 保存するフォルダとファイル名を自分で決めます。ファイルを残したいときや、他の人に渡すときに使います。 |
 
-### 読み込みのオプション
+項目の下に、実際に保存される場所が表示されます。
+
+### 2. 読み込み（Import into the target scene）
 
 | 項目 | 説明 |
 |---|---|
-| Conflict suffix | 名前が既にあるノードにだけ付ける接尾辞です。既定は `_imp` です。 |
-| Same-name material: Use existing | 同名の既存マテリアルを割り当てます。 |
-| Same-name material: Keep with suffix | 読み込んだマテリアルに接尾辞を付けて残します。 |
-| Place under: Same-name parent | 元の親と同じ名前のノードがあれば、その下に入れます。無ければワールド直下に置きます。（既定） |
-| Place under: Selected node | **Import and Transfer** を押したときに選択しているノードの下に入れます。ノードを1つだけ選んでください。 |
-| Place under: World | ワールド直下に置きます。 |
-| Copy bind matrices | 元のバインドポーズをコピーします。移植先の骨がポーズを取っていても正しく付きます。移植先の骨のバインドポーズが違う場合はオフにしてください。 |
+| Import from: Last export | 直前に書き出したファイル（1. で設定した場所）を読み込みます。（既定） |
+| Import from: Another file | **Browse...** を押して、このツールで書き出した `.ma` ファイルを選びます。任意のフォルダに保存したファイルや、他の人からもらったファイルを読み込むときに使います。 |
+| If a material exists: Use the existing one | 同じ名前のマテリアルがシーンにあれば、それを割り当てます。（既定） |
+| If a material exists: Import a copy | 読み込んだマテリアルに接尾辞を付けて残します。 |
+| Place meshes under: Matching parent | 元の親と同じ名前のノードがあれば、その下に入れます。無ければワールド直下に置きます。（既定） |
+| Place meshes under: Selected node | **Import and Transfer** を押したときに選択しているノードの下に入れます。ノードを1つだけ選んでください。 |
+| Place meshes under: World | ワールド直下に置きます。 |
+| Suffix for name clashes | 名前が既にあるノードにだけ付ける接尾辞です。既定は `_imp` です。 |
+| Keep the original bind pose | 元のバインドポーズをコピーします。移植先の骨がポーズを取っていても正しく付きます。移植先の骨のバインドポーズが違う場合はオフにしてください。 |
+
+### 任意のフォルダに保存したファイルを読み込むには
+
+1. **Import into the target scene** の欄で **Another file** を選びます。
+2. **Browse...** を押して `.ma` ファイルを選びます。
+3. **Import and Transfer** を押します。
 
 ## 注意点と制限
 
@@ -95,7 +104,7 @@ o848_skin_mesh_transfer.show_ui()
 
 ## 更新履歴
 
-- **1.1.0** — グループを選ぶと中のスキン付きメッシュをまとめて書き出せるように。置き場所の選択（元の親と同じ名前／選択中のノード／ワールド直下）を追加。
+- **1.1.0** — グループを選ぶと中のスキン付きメッシュをまとめて書き出せるように。置き場所の選択（元の親と同じ名前／選択中のノード／ワールド直下）を追加。「Import from: Another file」で任意のファイルを読み込めるように。UI の英語表記をわかりやすく改善。
 - **1.0.0** — 初回リリース
 
 ## ライセンス

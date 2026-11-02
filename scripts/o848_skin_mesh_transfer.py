@@ -38,6 +38,8 @@ WINDOW = "o848SkinMeshTransferWin"
 OPT_MODE = "o848_skinMeshTransfer_saveMode"      # 1=一時フォルダ 2=任意のフォルダ
 OPT_FOLDER = "o848_skinMeshTransfer_folder"
 OPT_NAME = "o848_skinMeshTransfer_fileName"
+OPT_IMPORT_FROM = "o848_skinMeshTransfer_importFrom"  # 1=前回の書き出し先 2=別のファイル
+OPT_IMPORT_FILE = "o848_skinMeshTransfer_importFile"
 DEFAULT_NAME = "o848_skin_mesh_transfer"
 INVALID_CHARS = '\\/:*?"<>|'
 
@@ -110,7 +112,7 @@ def _resolve_in_scene(name):
         if len(found) == 1:
             return found[0]
         if len(found) > 1:
-            raise RuntimeError("Multiple nodes share this name: " + pattern)
+            raise RuntimeError("More than one node has this name: " + pattern)
     return None
 
 
@@ -149,10 +151,10 @@ def _collect_skinned_meshes(roots):
 def export_meshes(path, meshes=None):
     roots = meshes or cmds.ls(selection=True, long=True)
     if not roots:
-        raise RuntimeError("Please select skinned meshes or their groups.")
+        raise RuntimeError("Select one or more skinned meshes, or a group that contains them.")
     meshes = _collect_skinned_meshes(roots)
     if not meshes:
-        raise RuntimeError("No skinned meshes found in the selection.")
+        raise RuntimeError("The selection doesn't contain any skinned meshes.")
 
     nodes = set()
     for m in meshes:
@@ -208,14 +210,14 @@ PARENT_WORLD = "world"           # ワールド直下
 def import_meshes(path, suffix="_imp", replace_material=True,
                   parent_mode=PARENT_BY_NAME, copy_bind_matrix=True):
     if not os.path.isfile(path):
-        raise RuntimeError("File not found: " + path)
+        raise RuntimeError("Can't find the file: " + path)
 
     # 「選択中のノード」は読み込みで選択が変わる前に確定させる
     parent_uuid = None
     if parent_mode == PARENT_SELECTED:
         sel = cmds.ls(selection=True, type="transform", long=True) or []
         if len(sel) != 1:
-            raise RuntimeError("Select one node to place the meshes under.")
+            raise RuntimeError("Select exactly one node to place the meshes under.")
         parent_uuid = _uuid(sel[0])
 
     cmds.namespace(setNamespace=":")
@@ -265,7 +267,7 @@ def _transfer_one(src, suffix, parent_mode, parent_uuid, copy_bind_matrix):
         else:
             missing.append(_strip_temp_ns(inf))
     if missing:
-        raise RuntimeError("Joints missing in this scene: " + ", ".join(missing))
+        raise RuntimeError("These joints don't exist in this scene: " + ", ".join(missing))
 
     # 2) スキンを切った状態（バインド時の形）で複製
     env = cmds.getAttr(src_sc + ".envelope")
@@ -294,7 +296,7 @@ def _transfer_one(src, suffix, parent_mode, parent_uuid, copy_bind_matrix):
                     parent = None
         elif parent_mode == PARENT_SELECTED:
             if not cmds.ls(parent_uuid):
-                raise RuntimeError("The selected parent node no longer exists")
+                raise RuntimeError("The selected parent node no longer exists.")
             parent = _from_uuid(parent_uuid)
         if parent:
             cmds.parent(_from_uuid(uid), parent)
@@ -313,7 +315,7 @@ def _transfer_one(src, suffix, parent_mode, parent_uuid, copy_bind_matrix):
         joints = [d for d in dst_infs if cmds.nodeType(d) == "joint"]
         others = [d for d in dst_infs if d not in joints]
         if not joints:
-            raise RuntimeError("No joint influences found")
+            raise RuntimeError("The skin has no joint influences.")
         cmds.select(clear=True)
         dst_sc = cmds.skinCluster(
             joints + [dup],
@@ -369,7 +371,7 @@ def _copy_weights(src_fn, src_shape, dst_fn, dst_shape, inf_map):
     s_dag, s_comp = _dag_and_all_verts(src_shape)
     d_dag, d_comp = _dag_and_all_verts(dst_shape)
     if om.MFnMesh(s_dag).numVertices != om.MFnMesh(d_dag).numVertices:
-        raise RuntimeError("Vertex count does not match")
+        raise RuntimeError("The vertex counts don't match.")
 
     weights, _ = src_fn.getWeights(s_dag, s_comp)
     dst_index = {p.fullPathName(): i for i, p in enumerate(dst_fn.influenceObjects())}
@@ -454,8 +456,8 @@ def _opt(key, default):
     return cmds.optionVar(q=key) if cmds.optionVar(exists=key) else default
 
 
-def _current_path():
-    """UI の設定から書き出し／読み込み先のパスを組み立てる"""
+def _export_path():
+    """書き出し先のパス（一時フォルダ or 任意のフォルダ＋ファイル名）"""
     mode = cmds.radioButtonGrp("smt_saveMode", q=True, select=True)
     if mode == 1:
         folder = _temp_folder()
@@ -463,58 +465,78 @@ def _current_path():
         folder = cmds.textFieldButtonGrp("smt_folder", q=True, text=True).strip()
         folder = folder.replace("\\", "/").rstrip("/")
         if not folder:
-            raise RuntimeError("Please specify a folder.")
+            raise RuntimeError("Choose a folder to save to.")
 
     name = cmds.textFieldGrp("smt_name", q=True, text=True).strip() or DEFAULT_NAME
     if name.lower().endswith(".ma"):
         name = name[:-3]
     bad = [c for c in INVALID_CHARS if c in name]
     if bad:
-        raise RuntimeError("Invalid characters in file name: " + " ".join(bad))
+        raise RuntimeError("The file name contains characters that aren't allowed: "
+                           + " ".join(bad))
     return "{}/{}.ma".format(folder, name)
+
+
+def _import_path():
+    """読み込むファイルのパス（前回の書き出し先 or 別のファイル）"""
+    if cmds.radioButtonGrp("smt_importFrom", q=True, select=True) == 1:
+        return _export_path()
+    path = cmds.textFieldButtonGrp("smt_importFile", q=True, text=True).strip()
+    if not path:
+        raise RuntimeError("Choose a file to import.")
+    return path.replace("\\", "/")
 
 
 def show_ui():
     if cmds.window(WINDOW, exists=True):
         cmds.deleteUI(WINDOW)
-    cmds.window(WINDOW, title="{}  v{}".format(TOOL_NAME, __version__), widthHeight=(470, 400))
+    cmds.window(WINDOW, title="{}  v{}".format(TOOL_NAME, __version__),
+                widthHeight=(480, 470))
     cmds.columnLayout(adjustableColumn=True, rowSpacing=6, columnAttach=("both", 8))
 
-    # ---- 保存先 ----
-    cmds.frameLayout(label="File Location", marginWidth=6, marginHeight=6)
-    cmds.radioButtonGrp("smt_saveMode", label="Location", numberOfRadioButtons=2,
-                        labelArray2=["Temp folder (default)", "Custom folder"],
-                        select=_opt(OPT_MODE, 1), columnWidth3=(80, 160, 140),
+    # ---- 1. 書き出し ----
+    cmds.frameLayout(label="1. Export from the source scene", marginWidth=6, marginHeight=6)
+    cmds.radioButtonGrp("smt_saveMode", label="Save to", numberOfRadioButtons=2,
+                        labelArray2=["Temp folder", "Custom folder"],
+                        select=_opt(OPT_MODE, 1), columnWidth3=(90, 120, 140),
                         changeCommand=_refresh)
-    cmds.textFieldButtonGrp("smt_folder", label="Folder", buttonLabel="...",
+    cmds.textFieldButtonGrp("smt_folder", label="Folder", buttonLabel="Browse...",
                             text=_opt(OPT_FOLDER, ""), adjustableColumn=2,
-                            columnWidth3=(80, 300, 30),
+                            columnWidth3=(90, 280, 70),
                             buttonCommand=_browse_folder, changeCommand=_refresh)
     cmds.textFieldGrp("smt_name", label="File name", text=_opt(OPT_NAME, DEFAULT_NAME),
-                      adjustableColumn=2, columnWidth2=(80, 300),
+                      adjustableColumn=2, columnWidth2=(90, 280),
                       changeCommand=_refresh)
-    cmds.button(label="Select Existing File...", command=_browse_file)
-    cmds.text("smt_resolved", label="", align="left", font="smallPlainLabelFont")
-    cmds.setParent("..")
-
-    # ---- 書き出し ----
-    cmds.frameLayout(label="1. Source Scene: Select meshes and export",
-                     marginWidth=6, marginHeight=6)
+    cmds.text("smt_exportPath", label="", align="left", font="smallPlainLabelFont")
     cmds.button(label="Export Selected Meshes", height=30, command=_on_export)
     cmds.setParent("..")
 
-    # ---- 読み込み ----
-    cmds.frameLayout(label="2. Target Scene: Import and transfer", marginWidth=6, marginHeight=6)
-    cmds.textFieldGrp("smt_suffix", label="Conflict suffix", text="_imp",
-                      columnWidth2=(130, 150))
-    cmds.radioButtonGrp("smt_mode", label="Same-name material", numberOfRadioButtons=2,
-                        labelArray2=["Use existing", "Keep with suffix"],
-                        select=1, columnWidth3=(130, 110, 130))
-    cmds.radioButtonGrp("smt_parent", label="Place under", numberOfRadioButtons=3,
-                        labelArray3=["Same-name parent", "Selected node", "World"],
+    # ---- 2. 読み込み ----
+    cmds.frameLayout(label="2. Import into the target scene", marginWidth=6, marginHeight=6)
+    cmds.radioButtonGrp("smt_importFrom", label="Import from", numberOfRadioButtons=2,
+                        labelArray2=["Last export", "Another file"],
+                        select=_opt(OPT_IMPORT_FROM, 1), columnWidth3=(90, 120, 140),
+                        changeCommand=_refresh)
+    cmds.textFieldButtonGrp("smt_importFile", label="File", buttonLabel="Browse...",
+                            text=_opt(OPT_IMPORT_FILE, ""), adjustableColumn=2,
+                            columnWidth3=(90, 280, 70),
+                            buttonCommand=_browse_import_file, changeCommand=_refresh)
+    cmds.text("smt_importPath", label="", align="left", font="smallPlainLabelFont")
+
+    cmds.separator(height=8, style="in")
+    cmds.radioButtonGrp("smt_mode", label="If a material exists",
+                        numberOfRadioButtons=2,
+                        labelArray2=["Use the existing one", "Import a copy"],
+                        select=1, columnWidth3=(130, 150, 120))
+    cmds.radioButtonGrp("smt_parent", label="Place meshes under",
+                        numberOfRadioButtons=3,
+                        labelArray3=["Matching parent", "Selected node", "World"],
                         select=1, columnWidth4=(130, 120, 100, 60))
+    cmds.textFieldGrp("smt_suffix", label="Suffix for name clashes", text="_imp",
+                      columnWidth2=(130, 120))
     cmds.checkBoxGrp("smt_opts", numberOfCheckBoxes=1, label="",
-                     label1="Copy bind matrices", value1=True, columnWidth2=(130, 200))
+                     label1="Keep the original bind pose", value1=True,
+                     columnWidth2=(130, 220))
     cmds.button(label="Import and Transfer", height=30, command=_on_import)
     cmds.setParent("..")
 
@@ -523,53 +545,63 @@ def show_ui():
 
 
 def _refresh(*_):
-    """フォルダ欄の有効／無効、パス表示、設定の保存"""
-    mode = cmds.radioButtonGrp("smt_saveMode", q=True, select=True)
-    cmds.textFieldButtonGrp("smt_folder", edit=True, enable=(mode == 2))
-    try:
-        label = _current_path()
-    except RuntimeError as e:
-        label = "! " + str(e)
-    cmds.text("smt_resolved", edit=True, label=label)
+    """欄の有効／無効、パス表示、設定の保存"""
+    save_mode = cmds.radioButtonGrp("smt_saveMode", q=True, select=True)
+    import_from = cmds.radioButtonGrp("smt_importFrom", q=True, select=True)
+    cmds.textFieldButtonGrp("smt_folder", edit=True, enable=(save_mode == 2))
+    cmds.textFieldButtonGrp("smt_importFile", edit=True, enable=(import_from == 2))
 
-    cmds.optionVar(intValue=(OPT_MODE, mode))
+    for ctrl, prefix, func in (("smt_exportPath", "Saves to: ", _export_path),
+                               ("smt_importPath", "Imports from: ", _import_path)):
+        try:
+            label = prefix + func()
+        except RuntimeError as e:
+            label = "! " + str(e)
+        cmds.text(ctrl, edit=True, label=label)
+
+    cmds.optionVar(intValue=(OPT_MODE, save_mode))
     cmds.optionVar(stringValue=(OPT_FOLDER,
                                 cmds.textFieldButtonGrp("smt_folder", q=True, text=True)))
     cmds.optionVar(stringValue=(OPT_NAME,
                                 cmds.textFieldGrp("smt_name", q=True, text=True)))
+    cmds.optionVar(intValue=(OPT_IMPORT_FROM, import_from))
+    cmds.optionVar(stringValue=(OPT_IMPORT_FILE,
+                                cmds.textFieldButtonGrp("smt_importFile", q=True, text=True)))
 
 
 def _browse_folder(*_):
     start = cmds.textFieldButtonGrp("smt_folder", q=True, text=True) or _temp_folder()
-    r = cmds.fileDialog2(fileMode=3, dialogStyle=2, startingDirectory=start)
+    r = cmds.fileDialog2(fileMode=3, dialogStyle=2, startingDirectory=start,
+                         caption="Choose a folder to save to")
     if r:
         cmds.textFieldButtonGrp("smt_folder", edit=True, text=r[0])
         _refresh()
 
 
-def _browse_file(*_):
-    """既存の .ma を選ぶと、場所を「任意」にしてフォルダとファイル名を埋める"""
-    r = cmds.fileDialog2(fileFilter="Maya ASCII (*.ma)", fileMode=1, dialogStyle=2)
+def _browse_import_file(*_):
+    current = cmds.textFieldButtonGrp("smt_importFile", q=True, text=True)
+    start = os.path.dirname(current) if current else _temp_folder()
+    r = cmds.fileDialog2(fileFilter="Maya ASCII (*.ma)", fileMode=1, dialogStyle=2,
+                         startingDirectory=start, caption="Choose a file to import")
     if r:
-        path = r[0].replace("\\", "/")
-        cmds.radioButtonGrp("smt_saveMode", edit=True, select=2)
-        cmds.textFieldButtonGrp("smt_folder", edit=True, text=os.path.dirname(path))
-        cmds.textFieldGrp("smt_name", edit=True,
-                          text=os.path.splitext(os.path.basename(path))[0])
+        cmds.radioButtonGrp("smt_importFrom", edit=True, select=2)
+        cmds.textFieldButtonGrp("smt_importFile", edit=True, text=r[0].replace("\\", "/"))
         _refresh()
 
 
 def _on_export(*_):
     try:
-        path = _current_path()
+        path = _export_path()
     except RuntimeError as e:
         cmds.confirmDialog(title="Export", message=str(e), button=["OK"])
         return
     # 任意のフォルダに既存ファイルがあるときだけ上書きを確認（一時フォルダは黙って上書き）
     if cmds.radioButtonGrp("smt_saveMode", q=True, select=True) == 2 and os.path.isfile(path):
-        if cmds.confirmDialog(title="Export", message="Overwrite this file?\n" + path,
-                              button=["Overwrite", "Cancel"], defaultButton="Cancel",
-                              cancelButton="Cancel", dismissString="Cancel") != "Overwrite":
+        if cmds.confirmDialog(title="Export",
+                              message="A file with this name already exists:\n{}\n\n"
+                                      "Do you want to replace it?".format(path),
+                              button=["Replace", "Cancel"], defaultButton="Cancel",
+                              cancelButton="Cancel", dismissString="Cancel") != "Replace":
             return
     try:
         meshes = export_meshes(path)
@@ -577,21 +609,22 @@ def _on_export(*_):
         cmds.confirmDialog(title="Export", message=str(e), button=["OK"])
         return
     cmds.confirmDialog(title="Export",
-                       message="Exported {} mesh(es)\n{}".format(len(meshes), path),
+                       message="Exported {} mesh(es) to:\n{}".format(len(meshes), path),
                        button=["OK"])
 
 
 def _on_import(*_):
     try:
-        path = _current_path()
+        path = _import_path()
     except RuntimeError as e:
         cmds.confirmDialog(title="Import", message=str(e), button=["OK"])
         return
     # 読み込みは Undo できないので、未保存のシーンでは確認する
     if cmds.file(q=True, modified=True):
         if cmds.confirmDialog(title="Import",
-                              message="The current scene has unsaved changes.\n"
-                                      "Import cannot be undone. Continue?",
+                              message="Your scene has unsaved changes, "
+                                      "and this import can't be undone.\n\n"
+                                      "Do you want to continue?",
                               button=["Continue", "Cancel"], defaultButton="Cancel",
                               cancelButton="Cancel", dismissString="Cancel") != "Continue":
             return
@@ -607,13 +640,13 @@ def _on_import(*_):
         return
 
     for d in done:
-        print("[{}] OK   : ".format(TOOL_NAME) + d)
+        print("[{}] OK   : {}".format(TOOL_NAME, d))
     for e in errors:
-        print("[{}] FAIL : ".format(TOOL_NAME) + e)
+        print("[{}] FAIL : {}".format(TOOL_NAME, e))
     if done:
         cmds.select(done, replace=True)
 
-    msg = "Transferred: {} mesh(es)".format(len(done))
+    msg = "Transferred {} mesh(es).".format(len(done))
     if errors:
-        msg += "\n\nFailed:\n" + "\n".join(errors)
+        msg += "\n\nThese meshes could not be transferred:\n" + "\n".join(errors)
     cmds.confirmDialog(title="Import", message=msg, button=["OK"])

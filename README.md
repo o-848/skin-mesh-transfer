@@ -67,25 +67,34 @@ o848_skin_mesh_transfer.show_ui()
 
 Save your scene before you import. You cannot undo the import.
 
-### File Location
+### 1. Export from the source scene
 
 | Option | What it does |
 |---|---|
-| Temp folder (default) | The tool saves the file in Maya's temp folder. Each export overwrites the previous file. |
-| Custom folder | You choose the folder and the file name. Use this option if you want to keep the file or give it to someone else. |
-| Select Existing File... | You pick an existing `.ma` file to import. |
+| Save to: Temp folder | The tool saves the file in Maya's temp folder. Each export replaces the previous file. This is the default. |
+| Save to: Custom folder | You choose the folder and the file name. Use this option if you want to keep the file or give it to someone else. |
 
-### Import options
+The line under the options shows exactly where the file will be saved.
+
+### 2. Import into the target scene
 
 | Option | What it does |
 |---|---|
-| Conflict suffix | The tool adds this suffix only to nodes whose names already exist in the scene. The default is `_imp`. |
-| Same-name material: Use existing | The tool assigns the mesh to the existing material with the same name. |
-| Same-name material: Keep with suffix | The tool keeps the imported material and adds the suffix to its name. |
-| Place under: Same-name parent | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. This is the default. |
-| Place under: Selected node | The tool places the mesh under the node you have selected when you click **Import and Transfer**. Select exactly one node. |
-| Place under: World | The tool places the mesh at the top level of the scene. |
-| Copy bind matrices | The tool copies the original bind pose, so the mesh binds correctly even if the target skeleton is in a pose. Turn this off if the target skeleton has a different bind pose. |
+| Import from: Last export | The tool imports the file you exported last, using the location set in section 1. This is the default. |
+| Import from: Another file | Click **Browse...** and choose any `.ma` file exported by this tool, for example a file from a custom folder or from someone else. |
+| If a material exists: Use the existing one | If the scene already has a material with the same name, the tool assigns the mesh to it. This is the default. |
+| If a material exists: Import a copy | The tool keeps the imported material and adds the suffix to its name. |
+| Place meshes under: Matching parent | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. This is the default. |
+| Place meshes under: Selected node | The tool places the mesh under the node you have selected when you click **Import and Transfer**. Select exactly one node. |
+| Place meshes under: World | The tool places the mesh at the top level of the scene. |
+| Suffix for name clashes | The tool adds this suffix only to nodes whose names already exist in the scene. The default is `_imp`. |
+| Keep the original bind pose | The tool copies the original bind pose, so the mesh binds correctly even if the target skeleton is in a pose. Turn this off if the target skeleton has a different bind pose. |
+
+### Importing a file from a custom folder
+
+1. In the **Import into the target scene** section, select **Another file**.
+2. Click **Browse...** and choose the `.ma` file.
+3. Click **Import and Transfer**.
 
 ## Notes and limitations
 
@@ -96,7 +105,7 @@ Save your scene before you import. You cannot undo the import.
 
 ## Version history
 
-- **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new "Place under" option lets you choose where the meshes go: under the same-name parent, under the selected node, or at the top level of the scene.
+- **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new option lets you choose where the meshes go: under the matching parent, under the selected node, or at the top level of the scene. You can now import any exported file with "Import from: Another file". The UI text has been rewritten to be clearer.
 - **1.0.0** — First release.
 
 ## License
