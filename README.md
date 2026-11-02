@@ -22,7 +22,7 @@ The tool does this by default. If you prefer, you can keep the imported material
 ## Features
 
 - The tool reuses existing materials with the same name (see above).
-- You can transfer several meshes at once. Select all the meshes and export them together.
+- You can transfer several meshes at once. Select the meshes themselves, or simply select their group: the tool finds every skinned mesh inside it.
 - The tool exports only what it needs: the meshes, their skin, their joints and their materials. It leaves rig controls behind.
 - The tool binds each mesh to the joints in the target scene that have the same names.
 - The tool copies skin weights exactly, vertex by vertex.
@@ -62,7 +62,7 @@ o848_skin_mesh_transfer.show_ui()
 
 ## How to use
 
-1. **In the source scene**, select the skinned meshes and click **Export Selected Meshes**.
+1. **In the source scene**, select the skinned meshes (or their group) and click **Export Selected Meshes**.
 2. **In the target scene**, click **Import and Transfer**.
 
 Save your scene before you import. You cannot undo the import.
@@ -82,7 +82,9 @@ Save your scene before you import. You cannot undo the import.
 | Conflict suffix | The tool adds this suffix only to nodes whose names already exist in the scene. The default is `_imp`. |
 | Same-name material: Use existing | The tool assigns the mesh to the existing material with the same name. |
 | Same-name material: Keep with suffix | The tool keeps the imported material and adds the suffix to its name. |
-| Match parent by name | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. |
+| Place under: Same-name parent | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. This is the default. |
+| Place under: Selected node | The tool places the mesh under the node you have selected when you click **Import and Transfer**. Select exactly one node. |
+| Place under: World | The tool places the mesh at the top level of the scene. |
 | Copy bind matrices | The tool copies the original bind pose, so the mesh binds correctly even if the target skeleton is in a pose. Turn this off if the target skeleton has a different bind pose. |
 
 ## Notes and limitations
@@ -94,6 +96,7 @@ Save your scene before you import. You cannot undo the import.
 
 ## Version history
 
+- **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new "Place under" option lets you choose where the meshes go: under the same-name parent, under the selected node, or at the top level of the scene.
 - **1.0.0** — First release.
 
 ## License

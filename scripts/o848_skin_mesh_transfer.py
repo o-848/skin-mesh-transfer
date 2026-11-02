@@ -21,7 +21,7 @@ Released under the MIT License (see LICENSE)
     import o848_skin_mesh_transfer as smt
     smt.show_ui()
 """
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 import os
 
@@ -130,16 +130,33 @@ def _shading_network(sg):
 # ============================================================
 # 1. 書き出し（元シーン）
 # ============================================================
+def _collect_skinned_meshes(roots):
+    """選択ノードとその子孫から、スキン付きメッシュのトランスフォームを集める。
+    グループを選んでも中のメッシュを拾い、スキンの無いメッシュや骨・ロケーターは無視する。"""
+    result = []
+    for root in cmds.ls(roots, type="transform", long=True) or []:
+        candidates = [root] + (cmds.listRelatives(root, allDescendents=True,
+                                                  type="transform", fullPath=True) or [])
+        for t in candidates:
+            if t in result:
+                continue
+            shape = _deformed_shape(t)
+            if shape and cmds.nodeType(shape) == "mesh" and _skin_cluster(t):
+                result.append(t)
+    return result
+
+
 def export_meshes(path, meshes=None):
-    meshes = meshes or cmds.ls(selection=True, type="transform", long=True)
+    roots = meshes or cmds.ls(selection=True, long=True)
+    if not roots:
+        raise RuntimeError("Please select skinned meshes or their groups.")
+    meshes = _collect_skinned_meshes(roots)
     if not meshes:
-        raise RuntimeError("Please select mesh transforms.")
+        raise RuntimeError("No skinned meshes found in the selection.")
 
     nodes = set()
     for m in meshes:
         sc = _skin_cluster(m)
-        if not sc:
-            raise RuntimeError("No skinCluster found: " + m)
         shapes = cmds.listRelatives(m, shapes=True, fullPath=True) or []
         nodes.add(m)
         nodes.update(shapes)
@@ -183,10 +200,23 @@ def export_meshes(path, meshes=None):
 # ============================================================
 # 2. 読み込み・移植（先シーン）
 # ============================================================
+PARENT_BY_NAME = "name"          # 元の親と同じ名前のノードの下（無ければワールド）
+PARENT_SELECTED = "selected"     # 読み込む前に選択していたノードの下
+PARENT_WORLD = "world"           # ワールド直下
+
+
 def import_meshes(path, suffix="_imp", replace_material=True,
-                  match_parent=True, copy_bind_matrix=True):
+                  parent_mode=PARENT_BY_NAME, copy_bind_matrix=True):
     if not os.path.isfile(path):
         raise RuntimeError("File not found: " + path)
+
+    # 「選択中のノード」は読み込みで選択が変わる前に確定させる
+    parent_uuid = None
+    if parent_mode == PARENT_SELECTED:
+        sel = cmds.ls(selection=True, type="transform", long=True) or []
+        if len(sel) != 1:
+            raise RuntimeError("Select one node to place the meshes under.")
+        parent_uuid = _uuid(sel[0])
 
     cmds.namespace(setNamespace=":")
     if cmds.namespace(exists=TEMP_NS):
@@ -206,7 +236,8 @@ def import_meshes(path, suffix="_imp", replace_material=True,
     try:
         for src in src_meshes:
             try:
-                dup = _transfer_one(src, suffix, match_parent, copy_bind_matrix)
+                dup = _transfer_one(src, suffix, parent_mode, parent_uuid,
+                                    copy_bind_matrix)
                 _handle_materials(dup, suffix, replace_material, sg_map)
                 done.append(dup)
             except Exception as e:
@@ -219,7 +250,7 @@ def import_meshes(path, suffix="_imp", replace_material=True,
     return done, errors
 
 
-def _transfer_one(src, suffix, match_parent, copy_bind_matrix):
+def _transfer_one(src, suffix, parent_mode, parent_uuid, copy_bind_matrix):
     src_sc = _skin_cluster(src)
     src_shape = _deformed_shape(src)
     src_fn = _fn_skin(src_sc)
@@ -252,15 +283,19 @@ def _transfer_one(src, suffix, match_parent, copy_bind_matrix):
                 continue
             cmds.delete(c)
 
-        # 3) 親：先シーンに同名の親があればその下、無ければワールド
+        # 3) 親：置き場所の設定に従う
         parent = None
-        if match_parent:
+        if parent_mode == PARENT_BY_NAME:
             sp = cmds.listRelatives(src, parent=True, fullPath=True)
             if sp:
                 try:
                     parent = _resolve_in_scene(sp[0])
                 except RuntimeError:
                     parent = None
+        elif parent_mode == PARENT_SELECTED:
+            if not cmds.ls(parent_uuid):
+                raise RuntimeError("The selected parent node no longer exists")
+            parent = _from_uuid(parent_uuid)
         if parent:
             cmds.parent(_from_uuid(uid), parent)
         elif cmds.listRelatives(_from_uuid(uid), parent=True):
@@ -442,7 +477,7 @@ def _current_path():
 def show_ui():
     if cmds.window(WINDOW, exists=True):
         cmds.deleteUI(WINDOW)
-    cmds.window(WINDOW, title="{}  v{}".format(TOOL_NAME, __version__), widthHeight=(470, 380))
+    cmds.window(WINDOW, title="{}  v{}".format(TOOL_NAME, __version__), widthHeight=(470, 400))
     cmds.columnLayout(adjustableColumn=True, rowSpacing=6, columnAttach=("both", 8))
 
     # ---- 保存先 ----
@@ -475,9 +510,11 @@ def show_ui():
     cmds.radioButtonGrp("smt_mode", label="Same-name material", numberOfRadioButtons=2,
                         labelArray2=["Use existing", "Keep with suffix"],
                         select=1, columnWidth3=(130, 110, 130))
-    cmds.checkBoxGrp("smt_opts", numberOfCheckBoxes=2,
-                     labelArray2=["Match parent by name", "Copy bind matrices"],
-                     value1=True, value2=True, columnWidth2=(170, 170))
+    cmds.radioButtonGrp("smt_parent", label="Place under", numberOfRadioButtons=3,
+                        labelArray3=["Same-name parent", "Selected node", "World"],
+                        select=1, columnWidth4=(130, 120, 100, 60))
+    cmds.checkBoxGrp("smt_opts", numberOfCheckBoxes=1, label="",
+                     label1="Copy bind matrices", value1=True, columnWidth2=(130, 200))
     cmds.button(label="Import and Transfer", height=30, command=_on_import)
     cmds.setParent("..")
 
@@ -560,10 +597,11 @@ def _on_import(*_):
             return
     suffix = cmds.textFieldGrp("smt_suffix", q=True, text=True) or "_imp"
     replace = cmds.radioButtonGrp("smt_mode", q=True, select=True) == 1
-    match_parent = cmds.checkBoxGrp("smt_opts", q=True, value1=True)
-    copy_bpm = cmds.checkBoxGrp("smt_opts", q=True, value2=True)
+    parent_mode = (PARENT_BY_NAME, PARENT_SELECTED, PARENT_WORLD)[
+        cmds.radioButtonGrp("smt_parent", q=True, select=True) - 1]
+    copy_bpm = cmds.checkBoxGrp("smt_opts", q=True, value1=True)
     try:
-        done, errors = import_meshes(path, suffix, replace, match_parent, copy_bpm)
+        done, errors = import_meshes(path, suffix, replace, parent_mode, copy_bpm)
     except Exception as e:
         cmds.confirmDialog(title="Import", message=str(e), button=["OK"])
         return
