@@ -112,7 +112,7 @@ def _resolve_in_scene(name):
         if len(found) == 1:
             return found[0]
         if len(found) > 1:
-            raise RuntimeError("More than one node has this name: " + pattern)
+            raise RuntimeError("Multiple nodes named: " + pattern)
     return None
 
 
@@ -151,10 +151,10 @@ def _collect_skinned_meshes(roots):
 def export_meshes(path, meshes=None):
     roots = meshes or cmds.ls(selection=True, long=True)
     if not roots:
-        raise RuntimeError("Select one or more skinned meshes, or a group that contains them.")
+        raise RuntimeError("Select skinned meshes or a group.")
     meshes = _collect_skinned_meshes(roots)
     if not meshes:
-        raise RuntimeError("The selection doesn't contain any skinned meshes.")
+        raise RuntimeError("No skinned meshes in selection.")
 
     nodes = set()
     for m in meshes:
@@ -210,14 +210,14 @@ PARENT_WORLD = "world"           # ワールド直下
 def import_meshes(path, suffix="_imp", replace_material=True,
                   parent_mode=PARENT_BY_NAME, copy_bind_matrix=True):
     if not os.path.isfile(path):
-        raise RuntimeError("Can't find the file: " + path)
+        raise RuntimeError("File not found: " + path)
 
     # 「選択中のノード」は読み込みで選択が変わる前に確定させる
     parent_uuid = None
     if parent_mode == PARENT_SELECTED:
         sel = cmds.ls(selection=True, type="transform", long=True) or []
         if len(sel) != 1:
-            raise RuntimeError("Select exactly one node to place the meshes under.")
+            raise RuntimeError("Select one parent node.")
         parent_uuid = _uuid(sel[0])
 
     cmds.namespace(setNamespace=":")
@@ -267,7 +267,7 @@ def _transfer_one(src, suffix, parent_mode, parent_uuid, copy_bind_matrix):
         else:
             missing.append(_strip_temp_ns(inf))
     if missing:
-        raise RuntimeError("These joints don't exist in this scene: " + ", ".join(missing))
+        raise RuntimeError("Missing joints: " + ", ".join(missing))
 
     # 2) スキンを切った状態（バインド時の形）で複製
     env = cmds.getAttr(src_sc + ".envelope")
@@ -296,7 +296,7 @@ def _transfer_one(src, suffix, parent_mode, parent_uuid, copy_bind_matrix):
                     parent = None
         elif parent_mode == PARENT_SELECTED:
             if not cmds.ls(parent_uuid):
-                raise RuntimeError("The selected parent node no longer exists.")
+                raise RuntimeError("Parent node not found.")
             parent = _from_uuid(parent_uuid)
         if parent:
             cmds.parent(_from_uuid(uid), parent)
@@ -315,7 +315,7 @@ def _transfer_one(src, suffix, parent_mode, parent_uuid, copy_bind_matrix):
         joints = [d for d in dst_infs if cmds.nodeType(d) == "joint"]
         others = [d for d in dst_infs if d not in joints]
         if not joints:
-            raise RuntimeError("The skin has no joint influences.")
+            raise RuntimeError("No joint influences.")
         cmds.select(clear=True)
         dst_sc = cmds.skinCluster(
             joints + [dup],
@@ -371,7 +371,7 @@ def _copy_weights(src_fn, src_shape, dst_fn, dst_shape, inf_map):
     s_dag, s_comp = _dag_and_all_verts(src_shape)
     d_dag, d_comp = _dag_and_all_verts(dst_shape)
     if om.MFnMesh(s_dag).numVertices != om.MFnMesh(d_dag).numVertices:
-        raise RuntimeError("The vertex counts don't match.")
+        raise RuntimeError("Vertex count mismatch.")
 
     weights, _ = src_fn.getWeights(s_dag, s_comp)
     dst_index = {p.fullPathName(): i for i, p in enumerate(dst_fn.influenceObjects())}
@@ -465,15 +465,14 @@ def _export_path():
         folder = cmds.textFieldButtonGrp("smt_folder", q=True, text=True).strip()
         folder = folder.replace("\\", "/").rstrip("/")
         if not folder:
-            raise RuntimeError("Choose a folder to save to.")
+            raise RuntimeError("No folder specified.")
 
     name = cmds.textFieldGrp("smt_name", q=True, text=True).strip() or DEFAULT_NAME
     if name.lower().endswith(".ma"):
         name = name[:-3]
     bad = [c for c in INVALID_CHARS if c in name]
     if bad:
-        raise RuntimeError("The file name contains characters that aren't allowed: "
-                           + " ".join(bad))
+        raise RuntimeError("Invalid characters in file name: " + " ".join(bad))
     return "{}/{}.ma".format(folder, name)
 
 
@@ -483,7 +482,7 @@ def _import_path():
         return _export_path()
     path = cmds.textFieldButtonGrp("smt_importFile", q=True, text=True).strip()
     if not path:
-        raise RuntimeError("Choose a file to import.")
+        raise RuntimeError("No file specified.")
     return path.replace("\\", "/")
 
 
@@ -598,10 +597,9 @@ def _on_export(*_):
     # 任意のフォルダに既存ファイルがあるときだけ上書きを確認（一時フォルダは黙って上書き）
     if cmds.radioButtonGrp("smt_saveMode", q=True, select=True) == 2 and os.path.isfile(path):
         if cmds.confirmDialog(title="Export",
-                              message="A file with this name already exists:\n{}\n\n"
-                                      "Do you want to replace it?".format(path),
-                              button=["Replace", "Cancel"], defaultButton="Cancel",
-                              cancelButton="Cancel", dismissString="Cancel") != "Replace":
+                              message="File already exists. Overwrite?\n" + path,
+                              button=["Overwrite", "Cancel"], defaultButton="Cancel",
+                              cancelButton="Cancel", dismissString="Cancel") != "Overwrite":
             return
     try:
         meshes = export_meshes(path)
@@ -609,7 +607,7 @@ def _on_export(*_):
         cmds.confirmDialog(title="Export", message=str(e), button=["OK"])
         return
     cmds.confirmDialog(title="Export",
-                       message="Exported {} mesh(es) to:\n{}".format(len(meshes), path),
+                       message="Exported {} mesh(es).\n{}".format(len(meshes), path),
                        button=["OK"])
 
 
@@ -622,9 +620,7 @@ def _on_import(*_):
     # 読み込みは Undo できないので、未保存のシーンでは確認する
     if cmds.file(q=True, modified=True):
         if cmds.confirmDialog(title="Import",
-                              message="Your scene has unsaved changes, "
-                                      "and this import can't be undone.\n\n"
-                                      "Do you want to continue?",
+                              message="Scene has unsaved changes. Import cannot be undone.\nContinue?",
                               button=["Continue", "Cancel"], defaultButton="Cancel",
                               cancelButton="Cancel", dismissString="Cancel") != "Continue":
             return
@@ -648,5 +644,5 @@ def _on_import(*_):
 
     msg = "Transferred {} mesh(es).".format(len(done))
     if errors:
-        msg += "\n\nThese meshes could not be transferred:\n" + "\n".join(errors)
+        msg += "\n\nFailed:\n" + "\n".join(errors)
     cmds.confirmDialog(title="Import", message=msg, button=["OK"])
