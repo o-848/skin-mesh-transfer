@@ -34,7 +34,7 @@ The tool does this by default. If you prefer, you can keep the imported material
 
 | | |
 |---|---|
-| Maya | Tested on Maya 2023. Support for Maya 2024–2026 is planned. |
+| Maya | Tested on Maya 2023 and 2026. Maya 2024 and 2025 should also work, but have not been tested yet. |
 | OS | Tested on Windows. |
 
 ## Installation

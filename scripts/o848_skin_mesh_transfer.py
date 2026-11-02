@@ -5,7 +5,7 @@ part of o-848 Tools
 Copyright (c) 2026 OhashiYa
 Released under the MIT License (see LICENSE)
 
-対応予定: Maya 2023 - 2026（動作確認済み: Maya 2023）
+対応予定: Maya 2023 - 2026（動作確認済み: Maya 2023, 2026）
 
 スキン付きメッシュを別シーンへ移植するツール。
 
