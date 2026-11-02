@@ -21,6 +21,7 @@ This is the default behavior. You can also choose to keep the imported materials
 ## Features
 
 - Reassigns the mesh to existing materials with the same name (see above).
+- Transfers multiple meshes at once. Select them all and export together.
 - Exports only what is needed: the mesh, its skin, its joints and its materials. Rig controls are not included.
 - Binds the mesh to the joints of the target scene, matched by name.
 - Copies skin weights exactly, vertex by vertex.
