@@ -28,9 +28,11 @@
 
 ### ドラッグ＆ドロップ（おすすめ）
 
-1. ダウンロードしたファイルを解凍します。
-2. `install.mel` を Maya のビューポートにドラッグ＆ドロップします。
-3. シェルフの **o848** タブにボタンが追加されます。
+1. [最新のリリース](https://github.com/o-848/skin-mesh-transfer/releases/latest)を開き、**Assets** にある `o848_SkinMeshTransfer_vX.X.X.zip` をダウンロードします。
+   - zip は丸ごと必要です。`install.mel` は同じフォルダにあるほかのファイルを使います。
+2. ダウンロードしたファイルを解凍します。
+3. `install.mel` を Maya のビューポートにドラッグ＆ドロップします。
+4. シェルフの **o848** タブにボタンが追加されます。
 
 ツールは `Documents/maya/scripts` にコピーされるので、同じ PC のどのバージョンの Maya でも使えます。
 インストーラは `Maya.env` や `userSetup.py` を書き換えません。

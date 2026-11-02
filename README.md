@@ -28,9 +28,11 @@ When both scenes use the same skeleton, the mesh, its skin weights and its mater
 
 ### Drag and drop (recommended)
 
-1. Unzip the downloaded file.
-2. Drag and drop `install.mel` into the Maya viewport.
-3. A button is added to the **o848** shelf tab.
+1. Open the [latest release](https://github.com/o-848/skin-mesh-transfer/releases/latest) and download `o848_SkinMeshTransfer_vX.X.X.zip` under **Assets**.
+   - You need the whole zip. `install.mel` uses the other files in the same folder.
+2. Unzip the file.
+3. Drag and drop `install.mel` into the Maya viewport.
+4. A button is added to the **o848** shelf tab.
 
 The tool is copied to `Documents/maya/scripts`, so it works in every Maya version on the same PC.
 The installer does not change `Maya.env` or `userSetup.py`.
