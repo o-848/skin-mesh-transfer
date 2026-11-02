@@ -7,13 +7,24 @@
 A Maya tool that moves skinned meshes from one scene to another.
 When both scenes use the same skeleton, the mesh, its skin weights and its materials are transferred in one click.
 
+## No more duplicate materials
+
+A normal import brings in copies of materials that the target scene already has, such as `skin_mat1`.
+This tool checks the target scene first. If a material with the same name exists, the imported mesh is assigned to **that existing material**, face by face, and the imported copy is deleted.
+
+- Your scene stays clean: no duplicate materials or shading groups.
+- Material edits you already made in the target scene are kept.
+- Multi-material meshes are supported. Each face keeps its own material.
+
+This is the default behavior. You can also choose to keep the imported materials with a suffix.
+
 ## Features
 
+- Reassigns the mesh to existing materials with the same name (see above).
 - Exports only what is needed: the mesh, its skin, its joints and its materials. Rig controls are not included.
 - Binds the mesh to the joints of the target scene, matched by name.
 - Copies skin weights exactly, vertex by vertex.
 - Stops and lists the joint names if any joint is missing in the target scene.
-- Materials: uses an existing material with the same name, or keeps the imported one with a suffix.
 - Adds a suffix only to nodes whose names conflict.
 - Removes all imported temporary nodes (joints, source mesh, unused materials) after the transfer.
 
