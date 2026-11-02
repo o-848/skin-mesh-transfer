@@ -65,7 +65,7 @@ o848_skin_mesh_transfer.show_ui()
 1. **In the source scene**, select the skinned meshes (or their group) and click **Export Selected Meshes**.
 2. **In the target scene**, click **Import and Transfer**.
 
-Save your scene before you import. You cannot undo the import.
+Undo (Ctrl+Z) does not work for the import. If you need to undo it, delete the transferred meshes.
 
 ### 1. Export from the source scene
 
@@ -105,7 +105,7 @@ The line under the options shows exactly where the file will be saved.
 
 ## Version history
 
-- **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new option lets you choose where the meshes go: under the matching parent, under the selected node, or at the top level of the scene. You can now import any exported file with "Import from: Another file". The UI text has been rewritten to be clearer.
+- **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new option lets you choose where the meshes go: under the matching parent, under the selected node, or at the top level of the scene. You can now import any exported file with "Import from: Another file". The UI text has been rewritten to be clearer. The unsaved-scene warning has been removed.
 - **1.0.0** — First release.
 
 ## License

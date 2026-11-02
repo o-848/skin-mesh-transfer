@@ -617,13 +617,6 @@ def _on_import(*_):
     except RuntimeError as e:
         cmds.confirmDialog(title="Import", message=str(e), button=["OK"])
         return
-    # 読み込みは Undo できないので、未保存のシーンでは確認する
-    if cmds.file(q=True, modified=True):
-        if cmds.confirmDialog(title="Import",
-                              message="Scene has unsaved changes. Import cannot be undone.\nContinue?",
-                              button=["Continue", "Cancel"], defaultButton="Cancel",
-                              cancelButton="Cancel", dismissString="Cancel") != "Continue":
-            return
     suffix = cmds.textFieldGrp("smt_suffix", q=True, text=True) or "_imp"
     replace = cmds.radioButtonGrp("smt_mode", q=True, select=True) == 1
     parent_mode = (PARENT_BY_NAME, PARENT_SELECTED, PARENT_WORLD)[
