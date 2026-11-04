@@ -113,6 +113,17 @@ The line under the options shows exactly where the file will be saved.
 - Deformers that come before the skin, such as blendShapes, are baked into the mesh shape.
 - Delete the modeling history of your meshes before you export them.
 
+## For reviewers and administrators
+
+- The tool does not use AI while it runs, and it does not connect to any AI service.
+- The tool does not access the network. It never sends scene data outside your computer.
+- The tool writes files only in these places:
+  - Export files: Maya's temp folder, or the folder you choose.
+  - Installation: a copy of the tool in `Documents/maya/scripts`, and the **o848** shelf (Maya saves it in its preferences folder).
+  - Tool settings (such as the save location) are stored in Maya's preferences (optionVar).
+- The tool does not change `Maya.env` or `userSetup.py`.
+- All source code is public. The tool itself is a single Python file.
+
 ## Version history
 
 - **1.2.0** — When you export a group, the group is now imported too. A new option lets you replace an existing node with the same name: the imported node takes over the name, and the existing node is kept as `_old`. The material option now has three choices: use the existing material, use the imported material, or keep both. The node order of the source scene is kept. Fixed a bug that added `_imp` even when there was no name clash.
