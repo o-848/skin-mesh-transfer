@@ -25,6 +25,7 @@ __version__ = "1.2.0"
 
 import json
 import os
+import traceback
 
 import maya.cmds as cmds
 import maya.mel as mel
@@ -265,6 +266,30 @@ class _Namer(object):
         self.old_meshes = set()  # _old にした既存メッシュの UUID
         self.old_by_name = {}    # 元の名前 -> _old にした既存 DAG ノードの UUID
         self.replaced_materials = []  # 読み込んだものに統一したマテリアル名
+        self._ops = []           # メッシュ1つ分の改名の記録（失敗したら元に戻す）
+
+    def begin(self):
+        self._ops = []
+
+    def rollback(self):
+        """このメッシュの処理中に行った既存ノードの改名を元に戻す"""
+        for uid, name in reversed(self._ops):
+            if cmds.ls(uid):
+                try:
+                    cmds.rename(_from_uuid(uid), ":" + name)
+                except RuntimeError:
+                    pass
+        undone = {name for _, name in self._ops}
+        self.renamed = [r for r in self.renamed if r[0] not in undone]
+        for name in undone:
+            self.old_by_name.pop(name, None)
+        self._ops = []
+
+    def _rename(self, node, new_name):
+        uid, prev = _uuid(node), _basename(node)
+        new = cmds.rename(node, ":" + new_name)
+        self._ops.append((uid, prev))
+        return new
 
     def protect(self, node):
         if node and cmds.objExists(node):
@@ -292,7 +317,7 @@ class _Namer(object):
         is_mesh = cmds.nodeType(node) == "transform" and _deformed_shape(node) and \
             cmds.nodeType(_deformed_shape(node)) == "mesh"
         uid = _uuid(node)
-        new = cmds.rename(node, ":" + _free_name(old_name + self.old))
+        new = self._rename(node, _free_name(old_name + self.old))
         self.renamed.append((old_name, new))
         if cmds.objectType(_from_uuid(uid), isAType="dagNode"):
             self.old_by_name[old_name] = uid
@@ -300,7 +325,7 @@ class _Namer(object):
             self.old_meshes.add(uid)
             # シェイプも「新しい名前 + Shape」にそろえる（後で読み込む側のシェイプ名と競合させない）
             for s in cmds.listRelatives(_from_uuid(uid), shapes=True, fullPath=True) or []:
-                cmds.rename(s, ":" + _free_name(_basename(new) + "Shape"))
+                self._rename(s, _free_name(_basename(new) + "Shape"))
         return new
 
     def claim(self, base):
@@ -309,9 +334,23 @@ class _Namer(object):
         if not clashes:
             return base
         if self.mode == CLASH_RENAME_EXISTING and all(self._can_rename(n) for n in clashes):
-            for uid in [_uuid(n) for n in clashes]:
-                self._rename_existing(_from_uuid(uid))
-            return base
+            mark = len(self._ops)
+            try:
+                for uid in [_uuid(n) for n in clashes]:
+                    self._rename_existing(_from_uuid(uid))
+                return base
+            except RuntimeError:
+                # 改名できなかった → この名前の分だけ元に戻し、読み込んだ側に _imp を付ける
+                traceback.print_exc()
+                ops, self._ops = self._ops[mark:], self._ops[:mark]
+                for uid, name in reversed(ops):
+                    if cmds.ls(uid):
+                        try:
+                            cmds.rename(_from_uuid(uid), ":" + name)
+                        except RuntimeError:
+                            pass
+                self.renamed = [r for r in self.renamed if r[0] != base]
+                self.old_by_name.pop(base, None)
         if self.mode == CLASH_RENAME_EXISTING:
             self.kept.append(base)
         return _unique_name(base, self.imp)
@@ -330,11 +369,14 @@ class _Namer(object):
                 return bool(parents) and all(
                     p and _uuid(p[0]) in self.old_meshes for p in parents)
             if all(belongs_to_old(n) and self._can_rename(n) for n in clashes):
-                for uid in [_uuid(n) for n in clashes]:
-                    n = _from_uuid(uid)
-                    new = cmds.rename(n, ":" + _free_name(_basename(n) + self.old))
-                    self.renamed.append((base, new))
-                return base
+                try:
+                    for uid in [_uuid(n) for n in clashes]:
+                        n = _from_uuid(uid)
+                        new = self._rename(n, _free_name(_basename(n) + self.old))
+                        self.renamed.append((base, new))
+                    return base
+                except RuntimeError:
+                    traceback.print_exc()
         return _unique_name(base, self.imp)
 
 
@@ -458,13 +500,24 @@ def import_meshes(path, mat_mode=MAT_USE_EXISTING, parent_mode=PARENT_BY_NAME,
         groups = _GroupBuilder(namer, parent_mode, parent_uuid)
         placed = []   # (一時NS内のメッシュのパス, 移植したメッシュの UUID)
         for src in src_meshes:
+            namer.begin()
             try:
                 dup = _transfer_one(src, namer, groups, copy_bind_matrix)
-                _handle_materials(dup, namer, mat_mode, sg_map)
-                done.append(dup)
-                placed.append((src, _uuid(dup)))
             except Exception as e:
+                # 失敗したメッシュの分の改名は元に戻す（古いメッシュだけ _old になるのを防ぐ）
+                print("[{}] ERROR: {}".format(TOOL_NAME, _strip_temp_ns(src)))
+                traceback.print_exc()
+                namer.rollback()
                 errors.append("{} : {}".format(_strip_temp_ns(src), e))
+                continue
+            try:
+                _handle_materials(dup, namer, mat_mode, sg_map)
+            except Exception as e:
+                print("[{}] ERROR (material): {}".format(TOOL_NAME, _strip_temp_ns(src)))
+                traceback.print_exc()
+                errors.append("{} (material) : {}".format(_strip_temp_ns(src), e))
+            done.append(dup)
+            placed.append((src, _uuid(dup)))
         try:
             _restore_order(placed, groups, namer)
         except Exception as e:
