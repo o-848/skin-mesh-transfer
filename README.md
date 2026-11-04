@@ -122,3 +122,10 @@ The line under the options shows exactly where the file will be saved.
 ## License
 
 This tool is released under the MIT License. See [LICENSE](LICENSE) for details.
+
+### Modifying and redistributing
+
+If you modify or redistribute this tool, you must keep the copyright notice (`Copyright (c) 2026 OhashiYa`) and the LICENSE file, as the MIT License requires.
+
+We also ask that you credit the original tool name (o-848 Skin Mesh Transfer), the author (OhashiYa), and the URL of this repository.
+Please do not present this tool, or a modified version of it, as your own original work.

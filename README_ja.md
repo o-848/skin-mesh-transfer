@@ -121,3 +121,10 @@ o848_skin_mesh_transfer.show_ui()
 ## ライセンス
 
 MIT License です。詳しくは [LICENSE](LICENSE) をご覧ください。
+
+### 改変・再配布について
+
+改変・再配布する場合は、ライセンスの条件どおり、著作権表示（`Copyright (c) 2026 OhashiYa`）と LICENSE ファイルを必ず残してください。
+
+あわせて、元のツール名「o-848 Skin Mesh Transfer」と作者（OhashiYa）、このリポジトリの URL も明記してください。
+このツールやその改変版を、ご自身のオリジナル作品として発表することはご遠慮ください。
