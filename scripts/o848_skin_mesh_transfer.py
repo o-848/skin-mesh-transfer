@@ -276,7 +276,7 @@ class _Namer(object):
         for uid, name in reversed(self._ops):
             if cmds.ls(uid):
                 try:
-                    cmds.rename(_from_uuid(uid), ":" + name)
+                    cmds.rename(_from_uuid(uid), ":" + name, ignoreShape=True)
                 except RuntimeError:
                     pass
         undone = {name for _, name in self._ops}
@@ -287,7 +287,8 @@ class _Namer(object):
 
     def _rename(self, node, new_name):
         uid, prev = _uuid(node), _basename(node)
-        new = cmds.rename(node, ":" + new_name)
+        # ignoreShape：Maya が自動でシェイプ名を変えないようにする（シェイプは自分で改名する）
+        new = cmds.rename(node, ":" + new_name, ignoreShape=True)
         self._ops.append((uid, prev))
         return new
 
@@ -346,7 +347,7 @@ class _Namer(object):
                 for uid, name in reversed(ops):
                     if cmds.ls(uid):
                         try:
-                            cmds.rename(_from_uuid(uid), ":" + name)
+                            cmds.rename(_from_uuid(uid), ":" + name, ignoreShape=True)
                         except RuntimeError:
                             pass
                 self.renamed = [r for r in self.renamed if r[0] != base]
@@ -624,9 +625,12 @@ def _transfer_one(src, namer, groups, copy_bind_matrix):
     namer.protected.add(uid)
     # 複製はシーンの通常の場所に元と同じ名前で作られるため、そのままだと
     # 正式な名前を付けるときに自分自身と競合する。一時ネームスペースの仮の名前に退避させる。
-    cmds.rename(_from_uuid(uid), TEMP_NS + ":o848_smt_dup#")
+    cmds.rename(_from_uuid(uid), TEMP_NS + ":o848_smt_dup#", ignoreShape=True)
     for s in cmds.listRelatives(_from_uuid(uid), shapes=True, fullPath=True) or []:
-        cmds.rename(s, TEMP_NS + ":o848_smt_dupShape#")
+        namer.protected.add(_uuid(s))
+    for su in [_uuid(s) for s in cmds.listRelatives(_from_uuid(uid), shapes=True,
+                                                   fullPath=True) or []]:
+        cmds.rename(_from_uuid(su), TEMP_NS + ":o848_smt_dupShape#")
 
     try:
         # 中間シェイプや子ノードを除去
@@ -641,10 +645,13 @@ def _transfer_one(src, namer, groups, copy_bind_matrix):
             cmds.parent(_from_uuid(uid), world=True)
 
         # 4) ルートネームスペースへ改名（競合の扱いは設定に従う）
+        #    名前を先に決めてから改名する（決める途中で既存ノードが改名されるため、
+        #    パスは改名の直前に UUID から取り直す）
         new_name = namer.claim(_basename(src))
-        cmds.rename(_from_uuid(uid), ":" + new_name)
-        cmds.rename(_deformed_shape(_from_uuid(uid)),
-                    ":" + namer.claim(_basename(_from_uuid(uid)) + "Shape"))
+        cmds.rename(_from_uuid(uid), ":" + new_name, ignoreShape=True)
+        shape_uid = _uuid(_deformed_shape(_from_uuid(uid)))
+        shape_name = namer.claim(_basename(_from_uuid(uid)) + "Shape")
+        cmds.rename(_from_uuid(shape_uid), ":" + shape_name)
         dup = _from_uuid(uid)
 
         # 5) 先シーンの骨にバインド
