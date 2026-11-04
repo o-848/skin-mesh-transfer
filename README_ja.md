@@ -87,8 +87,8 @@ o848_skin_mesh_transfer.show_ui()
 | Place meshes under: Matching parent | 元の親と同じ名前のノードがあれば、その下に入れます。無ければワールド直下に置きます。（既定）グループを書き出した場合は、グループの置き場所になります。 |
 | Place meshes under: Selected node | **Import and Transfer** を押したときに選択しているノードの下に入れます。ノードを1つだけ選んでください。 |
 | Place meshes under: World | ワールド直下に置きます。 |
-| If a name exists: Keep existing | 同じ名前のノードがあれば、既存の側はそのままにして、読み込んだ側に New suffix を付けます（例：`body` と `body_imp`）。（既定） |
-| If a name exists: Replace existing | 読み込んだ側が元の名前を引き継ぎ、既存の側に Old suffix を付けます（例：`body_old` と `body`）。既存の側は削除されずに残ります。古いメッシュを新しい版に入れ替えたいときに使います。 |
+| If a name exists: Replace existing | 読み込んだ側が元の名前を引き継ぎ、既存の側に Old suffix を付けます（例：`body_old` と `body`）。既存の側は削除されずに残ります。（既定） |
+| If a name exists: Keep existing | 既存の側はそのままにして、読み込んだ側に New suffix を付けます（例：`body` と `body_imp`）。 |
 | New suffix | **Keep existing** のときに、読み込んだ側に付ける接尾辞です。既定は `_imp` です。 |
 | Old suffix | **Replace existing** のときに、既存の側に付ける接尾辞です。既定は `_old` です。 |
 | Keep the original bind pose | 元のバインドポーズをコピーします。移植先の骨がポーズを取っていても正しく付きます。移植先の骨のバインドポーズが違う場合はオフにしてください。 |

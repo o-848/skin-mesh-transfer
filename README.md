@@ -88,8 +88,8 @@ The line under the options shows exactly where the file will be saved.
 | Place meshes under: Matching parent | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. This is the default. If you exported a group, this option applies to the group. |
 | Place meshes under: Selected node | The tool places the mesh under the node you have selected when you click **Import and Transfer**. Select exactly one node. |
 | Place meshes under: World | The tool places the mesh at the top level of the scene. |
-| If a name exists: Keep existing | If a node with the same name already exists, the existing node keeps its name and the tool adds the new suffix to the imported node (for example, `body` and `body_imp`). This is the default. |
-| If a name exists: Replace existing | The imported node takes over the name, and the tool adds the old suffix to the existing node (for example, `body_old` and `body`). The existing node is not deleted. Use this to replace an old mesh with a new version. |
+| If a name exists: Replace existing | The imported node takes over the name, and the tool adds the old suffix to the existing node (for example, `body_old` and `body`). The existing node is not deleted. This is the default. |
+| If a name exists: Keep existing | The existing node keeps its name, and the tool adds the new suffix to the imported node (for example, `body` and `body_imp`). |
 | New suffix | Added to the imported node when you choose **Keep existing**. The default is `_imp`. |
 | Old suffix | Added to the existing node when you choose **Replace existing**. The default is `_old`. |
 | Keep the original bind pose | The tool copies the original bind pose, so the mesh binds correctly even if the target skeleton is in a pose. Turn this off if the target skeleton has a different bind pose. |

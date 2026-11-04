@@ -42,7 +42,7 @@ OPT_FOLDER = "o848_skinMeshTransfer_folder"
 OPT_NAME = "o848_skinMeshTransfer_fileName"
 OPT_IMPORT_FROM = "o848_skinMeshTransfer_importFrom"  # 1=前回の書き出し先 2=別のファイル
 OPT_IMPORT_FILE = "o848_skinMeshTransfer_importFile"
-OPT_CLASH = "o848_skinMeshTransfer_clash"          # 1=読み込んだ側を改名 2=既存の側を改名
+OPT_CLASH = "o848_skinMeshTransfer_clashMode"      # 1=既存の側を改名（Replace） 2=読み込んだ側を改名（Keep）
 OPT_IMP_SUFFIX = "o848_skinMeshTransfer_impSuffix"
 OPT_OLD_SUFFIX = "o848_skinMeshTransfer_oldSuffix"
 DEFAULT_NAME = "o848_skin_mesh_transfer"
@@ -914,7 +914,7 @@ def show_ui():
                         labelArray3=["Matching parent", "Selected node", "World"],
                         select=1, columnWidth4=(130, 120, 100, 60))
     cmds.radioButtonGrp("smt_clash", label="If a name exists", numberOfRadioButtons=2,
-                        labelArray2=["Keep existing", "Replace existing"],
+                        labelArray2=["Replace existing", "Keep existing"],
                         select=_opt(OPT_CLASH, 1), columnWidth3=(130, 140, 140),
                         changeCommand=_refresh)
     cmds.textFieldGrp("smt_suffix", label="New suffix", text=_opt(OPT_IMP_SUFFIX, "_imp"),
@@ -1014,7 +1014,7 @@ def _on_import(*_):
         return
     imp_suffix = cmds.textFieldGrp("smt_suffix", q=True, text=True).strip() or "_imp"
     old_suffix = cmds.textFieldGrp("smt_oldSuffix", q=True, text=True).strip() or "_old"
-    clash_mode = (CLASH_RENAME_IMPORTED, CLASH_RENAME_EXISTING)[
+    clash_mode = (CLASH_RENAME_EXISTING, CLASH_RENAME_IMPORTED)[
         cmds.radioButtonGrp("smt_clash", q=True, select=True) - 1]
     mat_mode = (MAT_USE_EXISTING, MAT_USE_IMPORTED, MAT_KEEP_BOTH)[
         cmds.radioButtonGrp("smt_mode", q=True, select=True) - 1]
