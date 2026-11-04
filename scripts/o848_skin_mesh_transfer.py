@@ -491,6 +491,11 @@ def _transfer_one(src, namer, groups, copy_bind_matrix):
         cmds.setAttr(src_sc + ".envelope", env)
     uid = _uuid(dup)
     namer.protected.add(uid)
+    # 複製はシーンの通常の場所に元と同じ名前で作られるため、そのままだと
+    # 正式な名前を付けるときに自分自身と競合する。一時ネームスペースの仮の名前に退避させる。
+    cmds.rename(_from_uuid(uid), TEMP_NS + ":o848_smt_dup#")
+    for s in cmds.listRelatives(_from_uuid(uid), shapes=True, fullPath=True) or []:
+        cmds.rename(s, TEMP_NS + ":o848_smt_dupShape#")
 
     try:
         # 中間シェイプや子ノードを除去
@@ -733,12 +738,12 @@ def show_ui():
                         labelArray3=["Matching parent", "Selected node", "World"],
                         select=1, columnWidth4=(130, 120, 100, 60))
     cmds.radioButtonGrp("smt_clash", label="If a name exists", numberOfRadioButtons=2,
-                        labelArray2=["Rename imported", "Rename existing"],
+                        labelArray2=["Keep existing", "Replace existing"],
                         select=_opt(OPT_CLASH, 1), columnWidth3=(130, 140, 140),
                         changeCommand=_refresh)
-    cmds.textFieldGrp("smt_suffix", label="Imported suffix", text=_opt(OPT_IMP_SUFFIX, "_imp"),
+    cmds.textFieldGrp("smt_suffix", label="New suffix", text=_opt(OPT_IMP_SUFFIX, "_imp"),
                       columnWidth2=(130, 120), changeCommand=_refresh)
-    cmds.textFieldGrp("smt_oldSuffix", label="Existing suffix", text=_opt(OPT_OLD_SUFFIX, "_old"),
+    cmds.textFieldGrp("smt_oldSuffix", label="Old suffix", text=_opt(OPT_OLD_SUFFIX, "_old"),
                       columnWidth2=(130, 120), changeCommand=_refresh)
     cmds.checkBoxGrp("smt_opts", numberOfCheckBoxes=1, label="",
                      label1="Keep the original bind pose", value1=True,
