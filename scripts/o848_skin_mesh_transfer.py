@@ -236,6 +236,10 @@ PARENT_WORLD = "world"           # ワールド直下
 CLASH_RENAME_IMPORTED = "imported"   # 名前が競合したら、読み込んだ側に接尾辞（_imp）
 CLASH_RENAME_EXISTING = "existing"   # 名前が競合したら、既存の側に接尾辞（_old）
 
+MAT_USE_EXISTING = "existing"   # 同名マテリアルがあれば既存に統一
+MAT_USE_IMPORTED = "imported"   # 同名マテリアルがあれば読み込んだものに統一（既存は削除）
+MAT_KEEP_BOTH = "both"          # 両方残す（読み込んだ側に _imp）
+
 
 def _free_name(stem):
     """stem が空いていればそのまま、無ければ stem1, stem2 …"""
@@ -259,6 +263,8 @@ class _Namer(object):
         self.renamed = []        # (旧名, 新名)
         self.kept = []           # 改名できず、読み込んだ側に _imp を付けたもの
         self.old_meshes = set()  # _old にした既存メッシュの UUID
+        self.old_by_name = {}    # 元の名前 -> _old にした既存 DAG ノードの UUID
+        self.replaced_materials = []  # 読み込んだものに統一したマテリアル名
 
     def protect(self, node):
         if node and cmds.objExists(node):
@@ -288,6 +294,8 @@ class _Namer(object):
         uid = _uuid(node)
         new = cmds.rename(node, ":" + _free_name(old_name + self.old))
         self.renamed.append((old_name, new))
+        if cmds.objectType(_from_uuid(uid), isAType="dagNode"):
+            self.old_by_name[old_name] = uid
         if is_mesh:
             self.old_meshes.add(uid)
             # シェイプも「新しい名前 + Shape」にそろえる（後で読み込む側のシェイプ名と競合させない）
@@ -339,6 +347,7 @@ class _GroupBuilder(object):
         self.parent_uuid = parent_uuid
         self.roots = []
         self.cache = {}   # 一時NS内のグループのパス -> 移植先のグループの UUID
+        self.created = set()  # 新しく作ったグループの UUID
         infos = cmds.ls(TEMP_NS + ":" + INFO_NODE + "*", type="network") or []
         for info in infos:
             if cmds.attributeQuery("groupRoots", node=info, exists=True):
@@ -390,6 +399,7 @@ class _GroupBuilder(object):
                    matrix=cmds.xform(temp_grp, q=True, objectSpace=True, matrix=True))
         self.namer.protect(g)
         self.cache[temp_grp] = _uuid(g)
+        self.created.add(_uuid(g))
         return g
 
 
@@ -410,7 +420,7 @@ def _placement(src, parent_mode, parent_uuid):
     return None
 
 
-def import_meshes(path, replace_material=True, parent_mode=PARENT_BY_NAME,
+def import_meshes(path, mat_mode=MAT_USE_EXISTING, parent_mode=PARENT_BY_NAME,
                   copy_bind_matrix=True, clash_mode=CLASH_RENAME_IMPORTED,
                   imp_suffix="_imp", old_suffix="_old"):
     """戻り値: (移植したメッシュ, 失敗, _Namer)"""
@@ -446,19 +456,87 @@ def import_meshes(path, replace_material=True, parent_mode=PARENT_BY_NAME,
     sg_map = {}  # 読み込んだSG -> 差し替え先の既存SG
     try:
         groups = _GroupBuilder(namer, parent_mode, parent_uuid)
+        placed = []   # (一時NS内のメッシュのパス, 移植したメッシュの UUID)
         for src in src_meshes:
             try:
                 dup = _transfer_one(src, namer, groups, copy_bind_matrix)
-                _handle_materials(dup, namer.imp, replace_material, sg_map)
+                _handle_materials(dup, namer, mat_mode, sg_map)
                 done.append(dup)
+                placed.append((src, _uuid(dup)))
             except Exception as e:
                 errors.append("{} : {}".format(_strip_temp_ns(src), e))
+        try:
+            _restore_order(placed, groups, namer)
+        except Exception as e:
+            cmds.warning("[{}] Could not restore node order: {}".format(TOOL_NAME, e))
+        done = [_from_uuid(u) for _, u in placed if cmds.ls(u)]
     finally:
         # 読み込んだ骨・元メッシュ・使わなかったマテリアル等をまとめて削除
         cmds.namespace(setNamespace=":")
         if cmds.namespace(exists=TEMP_NS):
             cmds.namespace(removeNamespace=TEMP_NS, deleteNamespaceContent=True)
     return done, errors, namer
+
+
+def _children(parent):
+    """parent の子トランスフォーム（並び順どおり）。parent が None ならワールド直下"""
+    if parent:
+        return cmds.listRelatives(parent, children=True, type="transform", fullPath=True) or []
+    return [a for a in (cmds.ls(assemblies=True, long=True) or [])
+            if cmds.nodeType(a) != "dagContainer"]
+
+
+def _parent_uuid(node):
+    p = cmds.listRelatives(node, parent=True, fullPath=True)
+    return _uuid(p[0]) if p else None
+
+
+def _restore_order(placed, groups, namer):
+    """書き出し元の並び順を再現する（FBX のノード順を崩さないため）。
+    対象：Replace existing のときの全ノード、および新しく作ったグループの中身"""
+    mapping = dict(groups.cache)
+    mapping.update(dict(placed))
+    items = [(t, u) for t, u in groups.cache.items() if u in groups.created] + list(placed)
+    dfs = {n: i for i, n in enumerate(cmds.ls(dag=True, long=True) or [])}
+    items.sort(key=lambda x: dfs.get(x[0], 0))
+
+    for temp, uid in items:
+        if not cmds.ls(uid):
+            continue
+        node = _from_uuid(uid)
+        p_uid = _parent_uuid(node)
+        if not (namer.mode == CLASH_RENAME_EXISTING or p_uid in groups.created):
+            continue
+        tp = cmds.listRelatives(temp, parent=True, fullPath=True)
+        src_sibs = _children(tp[0]) if tp else [a for a in _children(None) if _in_temp_ns(a)]
+        if temp not in src_sibs:
+            continue
+
+        # 書き出し元で直前にあったノードのうち、同じ親の下に移ってきているもの
+        anchor = None
+        for prev in reversed(src_sibs[:src_sibs.index(temp)]):
+            u = mapping.get(prev)
+            if u and cmds.ls(u) and _parent_uuid(_from_uuid(u)) == p_uid:
+                anchor = _from_uuid(u)
+                break
+
+        parent = cmds.listRelatives(node, parent=True, fullPath=True)
+        sibs = _children(parent[0] if parent else None)
+        cur = sibs.index(node)
+        rest = [n for n in sibs if n != node]
+        if anchor:
+            want = rest.index(anchor) + 1
+        else:
+            old_u = namer.old_by_name.get(_basename(node))
+            old = _from_uuid(old_u) if old_u and cmds.ls(old_u) else None
+            if old and _parent_uuid(old) == p_uid:
+                want = rest.index(old)          # 置き換えた古いノードの位置へ
+            elif p_uid in groups.created:
+                want = 0                        # 新しいグループでは先頭から
+            else:
+                continue
+        if want != cur:
+            cmds.reorder(node, relative=want - cur)
 
 
 def _transfer_one(src, namer, groups, copy_bind_matrix):
@@ -604,26 +682,64 @@ def _copy_bind_matrices(src_sc, src_fn, dst_sc, dst_fn, inf_map):
 # ============================================================
 # マテリアル整理
 # ============================================================
-def _handle_materials(dup, suffix, replace_material, sg_map):
+def _handle_materials(dup, namer, mat_mode, sg_map):
     shape = _deformed_shape(dup)
     for sg in list(dict.fromkeys(cmds.listConnections(shape, type="shadingEngine") or [])):
         if not _in_temp_ns(sg):
             continue  # 移し終えたSG、または initialShadingGroup など既存のもの
-        if sg not in sg_map:
-            dst_sg = None
-            if replace_material:
-                mats = cmds.listConnections(sg + ".surfaceShader",
-                                            source=True, destination=False) or []
-                if mats:
-                    existing = cmds.ls(_basename(mats[0]), materials=True)
-                    if existing:
-                        dst_sg = _shading_group_of(existing[0])
-            if dst_sg is None:
-                # 同名マテリアルが無い／接尾辞モード → ネットワークごと移して残す
-                _rename_network(sg, suffix)
+        if sg in sg_map:
+            _reassign(dup, shape, sg, sg_map[sg])
+            continue
+        mats = cmds.listConnections(sg + ".surfaceShader", source=True, destination=False) or []
+        existing = []
+        if mats:
+            existing = [m for m in (cmds.ls(_basename(mats[0]), materials=True) or [])
+                        if not _in_temp_ns(m)]
+        if existing and mat_mode == MAT_USE_IMPORTED:
+            if _replace_material(existing[0], sg, mats[0], namer):
                 continue
-            sg_map[sg] = dst_sg
-        _reassign(dup, shape, sg, sg_map[sg])
+            namer.kept.append(_basename(mats[0]))   # 置き換えられない → 既存を使う
+        if existing and mat_mode in (MAT_USE_EXISTING, MAT_USE_IMPORTED):
+            sg_map[sg] = _shading_group_of(existing[0])
+            _reassign(dup, shape, sg, sg_map[sg])
+            continue
+        # 同名マテリアルが無い／Keep both → ネットワークごと移して残す
+        _rename_network(sg, namer.imp)
+
+
+def _replace_material(old_mat, temp_sg, temp_mat, namer):
+    """既存のマテリアルを、読み込んだマテリアルで置き換える。
+    既存のマテリアルを使っていたものはすべて新しいマテリアルに付け替え、既存は削除する。"""
+    if old_mat in (cmds.ls(defaultNodes=True) or []) or not namer._can_rename(old_mat):
+        return False
+    old_sgs = [s for s in (cmds.listConnections(old_mat, source=False, destination=True,
+                                                type="shadingEngine") or [])
+               if old_mat in (cmds.listConnections(s + ".surfaceShader",
+                                                   source=True, destination=False) or [])]
+    old_sgs = list(dict.fromkeys(old_sgs))
+    defaults = set(cmds.ls(defaultNodes=True) or [])
+    if any(s in defaults or not namer._can_rename(s) for s in old_sgs):
+        return False
+
+    members = []
+    for s in old_sgs:
+        members += cmds.sets(s, q=True) or []
+    mat_name, sg_name = _basename(temp_mat), _basename(temp_sg)
+    mat_uid, sg_uid = _uuid(temp_mat), _uuid(temp_sg)
+
+    _rename_network(temp_sg, namer.imp)           # いったん接尾辞付きで移す
+    new_sg = _from_uuid(sg_uid)
+    if members:
+        cmds.sets(members, edit=True, forceElement=new_sg)
+    cmds.delete(old_sgs + [old_mat])
+
+    # 空いた名前を引き継ぐ
+    if not cmds.ls(mat_name):
+        cmds.rename(_from_uuid(mat_uid), ":" + mat_name)
+    if not cmds.ls(sg_name):
+        cmds.rename(_from_uuid(sg_uid), ":" + sg_name)
+    namer.replaced_materials.append(mat_name)
+    return True
 
 
 def _shading_group_of(mat):
@@ -730,9 +846,9 @@ def show_ui():
 
     cmds.separator(height=8, style="in")
     cmds.radioButtonGrp("smt_mode", label="If a material exists",
-                        numberOfRadioButtons=2,
-                        labelArray2=["Use the existing one", "Import a copy"],
-                        select=1, columnWidth3=(130, 150, 120))
+                        numberOfRadioButtons=3,
+                        labelArray3=["Use existing", "Use imported", "Keep both"],
+                        select=1, columnWidth4=(130, 110, 110, 90))
     cmds.radioButtonGrp("smt_parent", label="Place meshes under",
                         numberOfRadioButtons=3,
                         labelArray3=["Matching parent", "Selected node", "World"],
@@ -840,12 +956,13 @@ def _on_import(*_):
     old_suffix = cmds.textFieldGrp("smt_oldSuffix", q=True, text=True).strip() or "_old"
     clash_mode = (CLASH_RENAME_IMPORTED, CLASH_RENAME_EXISTING)[
         cmds.radioButtonGrp("smt_clash", q=True, select=True) - 1]
-    replace = cmds.radioButtonGrp("smt_mode", q=True, select=True) == 1
+    mat_mode = (MAT_USE_EXISTING, MAT_USE_IMPORTED, MAT_KEEP_BOTH)[
+        cmds.radioButtonGrp("smt_mode", q=True, select=True) - 1]
     parent_mode = (PARENT_BY_NAME, PARENT_SELECTED, PARENT_WORLD)[
         cmds.radioButtonGrp("smt_parent", q=True, select=True) - 1]
     copy_bpm = cmds.checkBoxGrp("smt_opts", q=True, value1=True)
     try:
-        done, errors, namer = import_meshes(path, replace, parent_mode, copy_bpm,
+        done, errors, namer = import_meshes(path, mat_mode, parent_mode, copy_bpm,
                                             clash_mode, imp_suffix, old_suffix)
     except Exception as e:
         cmds.confirmDialog(title="Import", message=str(e), button=["OK"])
@@ -865,6 +982,9 @@ def _on_import(*_):
     msg = "Transferred {} mesh(es).".format(len(done))
     if namer.renamed:
         msg += "\nRenamed {} existing node(s) to *{}.".format(len(namer.renamed), namer.old)
+    if namer.replaced_materials:
+        msg += "\nReplaced {} material(s) with the imported ones.".format(
+            len(namer.replaced_materials))
     if namer.kept:
         msg += "\n\nCould not rename (locked, referenced or rig):\n" + "\n".join(namer.kept)
     if errors:

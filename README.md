@@ -17,7 +17,7 @@ This tool avoids that. Before it assigns any material, it checks the target scen
 - Any changes you have already made to those materials in the target scene are kept.
 - Meshes with several materials work too. Every face keeps the material it had.
 
-The tool does this by default. If you prefer, you can keep the imported materials instead; the tool then adds a suffix to their names.
+The tool does this by default. You can also replace the existing materials with the imported ones, or keep both to compare them.
 
 ## Features
 
@@ -82,8 +82,9 @@ The line under the options shows exactly where the file will be saved.
 |---|---|
 | Import from: Last export | The tool imports the file you exported last, using the location set in section 1. This is the default. |
 | Import from: Another file | Click **Browse...** and choose any `.ma` file exported by this tool, for example a file from a custom folder or from someone else. |
-| If a material exists: Use the existing one | If the scene already has a material with the same name, the tool assigns the mesh to it. This is the default. |
-| If a material exists: Import a copy | The tool keeps the imported material and adds the suffix to its name. |
+| If a material exists: Use existing | If the scene already has a material with the same name, the imported mesh uses that existing material, and the imported material is discarded. This is the default. |
+| If a material exists: Use imported | The imported material replaces the existing one. Every mesh that used the existing material, including the old mesh, now uses the imported material, and the existing material is deleted. |
+| If a material exists: Keep both | The tool keeps both materials and adds the new suffix to the imported one (for example, `skin_mat` and `skin_mat_imp`). Use this to compare old and new. |
 | Place meshes under: Matching parent | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. This is the default. If you exported a group, this option applies to the group. |
 | Place meshes under: Selected node | The tool places the mesh under the node you have selected when you click **Import and Transfer**. Select exactly one node. |
 | Place meshes under: World | The tool places the mesh at the top level of the scene. |
@@ -103,7 +104,9 @@ The line under the options shows exactly where the file will be saved.
 
 - When you export a group, the tool recreates the group in the target scene. If a group with the same name already exists in the same place, the tool puts the meshes into that group instead of creating a new one.
 - With "Replace existing", the tool never renames joints, groups that contain joints, or locked or referenced nodes. In those cases it renames the imported node instead and lists it in the result.
-- With "Replace existing", imported material copies still get the new suffix, so other meshes that use the existing materials are not affected.
+- The material option works separately from the name option, so you can, for example, take the new mesh but keep the existing materials.
+- With "Replace existing", or when the tool creates a group, the tool keeps the node order of the source scene. This keeps the node order in exported FBX files stable.
+- "Use imported" deletes the existing material node, but not the textures connected to it. Use **File > Optimize Scene Size** to remove unused nodes.
 
 - The tool matches joints by name. If two joints have the same name, it shows an error.
 - If the target scene has extra joints that the source mesh does not use (for example, extra jiggle joints), the tool does not add them to the skin.
@@ -112,7 +115,7 @@ The line under the options shows exactly where the file will be saved.
 
 ## Version history
 
-- **1.2.0** — When you export a group, the group is now imported too. A new option lets you replace an existing node with the same name: the imported node takes over the name, and the existing node is kept as `_old`. Fixed a bug that added `_imp` even when there was no name clash.
+- **1.2.0** — When you export a group, the group is now imported too. A new option lets you replace an existing node with the same name: the imported node takes over the name, and the existing node is kept as `_old`. The material option now has three choices: use the existing material, use the imported material, or keep both. The node order of the source scene is kept. Fixed a bug that added `_imp` even when there was no name clash.
 - **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new option lets you choose where the meshes go: under the matching parent, under the selected node, or at the top level of the scene. You can now import any exported file with "Import from: Another file". The UI text has been rewritten to be clearer. The unsaved-scene warning has been removed.
 - **1.0.0** — First release.
 
