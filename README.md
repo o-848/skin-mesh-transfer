@@ -22,12 +22,12 @@ The tool does this by default. If you prefer, you can keep the imported material
 ## Features
 
 - The tool reuses existing materials with the same name (see above).
-- You can transfer several meshes at once. Select the meshes themselves, or simply select their group: the tool finds every skinned mesh inside it.
+- You can transfer several meshes at once. Select the meshes themselves, or simply select their group: the tool finds every skinned mesh inside it and brings the group along.
 - The tool exports only what it needs: the meshes, their skin, their joints and their materials. It leaves rig controls behind.
 - The tool binds each mesh to the joints in the target scene that have the same names.
 - The tool copies skin weights exactly, vertex by vertex.
 - If the target scene is missing any joints, the tool stops and shows you which ones.
-- The tool renames a node only when its name is already taken in the target scene.
+- If a name is already taken in the target scene, you choose which side gets renamed: the imported node (`_imp`) or the existing one (`_old`).
 - When the transfer is done, the tool deletes everything it imported temporarily: the source joints, the source meshes and any unused materials.
 
 ## Requirements
@@ -84,10 +84,13 @@ The line under the options shows exactly where the file will be saved.
 | Import from: Another file | Click **Browse...** and choose any `.ma` file exported by this tool, for example a file from a custom folder or from someone else. |
 | If a material exists: Use the existing one | If the scene already has a material with the same name, the tool assigns the mesh to it. This is the default. |
 | If a material exists: Import a copy | The tool keeps the imported material and adds the suffix to its name. |
-| Place meshes under: Matching parent | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. This is the default. |
+| Place meshes under: Matching parent | The tool looks for a node with the same name as the mesh's original parent and places the mesh under it. If there is no such node, the mesh goes to the top level of the scene. This is the default. If you exported a group, this option applies to the group. |
 | Place meshes under: Selected node | The tool places the mesh under the node you have selected when you click **Import and Transfer**. Select exactly one node. |
 | Place meshes under: World | The tool places the mesh at the top level of the scene. |
-| Suffix for name clashes | The tool adds this suffix only to nodes whose names already exist in the scene. The default is `_imp`. |
+| If a name exists: Rename imported | If a node with the same name already exists, the tool adds the imported suffix to the imported node. This is the default. |
+| If a name exists: Rename existing | If a node with the same name already exists, the tool adds the existing suffix to the existing node, and the imported node keeps its original name. Use this to replace an old mesh with a new version. |
+| Imported suffix | The suffix for imported nodes. The default is `_imp`. |
+| Existing suffix | The suffix for existing nodes. The default is `_old`. |
 | Keep the original bind pose | The tool copies the original bind pose, so the mesh binds correctly even if the target skeleton is in a pose. Turn this off if the target skeleton has a different bind pose. |
 
 ### Importing a file from a custom folder
@@ -98,6 +101,10 @@ The line under the options shows exactly where the file will be saved.
 
 ## Notes and limitations
 
+- When you export a group, the tool recreates the group in the target scene. If a group with the same name already exists in the same place, the tool puts the meshes into that group instead of creating a new one.
+- With "Rename existing", the tool never renames joints, groups that contain joints, or locked or referenced nodes. In those cases it renames the imported node instead and lists it in the result.
+- With "Rename existing", imported material copies still get the imported suffix, so other meshes that use the existing materials are not affected.
+
 - The tool matches joints by name. If two joints have the same name, it shows an error.
 - If the target scene has extra joints that the source mesh does not use (for example, extra jiggle joints), the tool does not add them to the skin.
 - Deformers that come before the skin, such as blendShapes, are baked into the mesh shape.
@@ -105,6 +112,7 @@ The line under the options shows exactly where the file will be saved.
 
 ## Version history
 
+- **1.2.0** — When you export a group, the group is now imported too. A new option lets you rename the existing node (`_old`) instead of the imported one when names clash.
 - **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new option lets you choose where the meshes go: under the matching parent, under the selected node, or at the top level of the scene. You can now import any exported file with "Import from: Another file". The UI text has been rewritten to be clearer. The unsaved-scene warning has been removed.
 - **1.0.0** — First release.
 
