@@ -92,7 +92,7 @@ The line under the options shows exactly where the file will be saved.
 | If a name exists: Keep existing | The existing node keeps its name, and the tool adds the new suffix to the imported node (for example, `body` and `body_imp`). |
 | New suffix | Added to the imported node when you choose **Keep existing**. The default is `_imp`. |
 | Old suffix | Added to the existing node when you choose **Replace existing**. The default is `_old`. |
-| Keep the original bind pose | The tool copies the original bind pose, so the mesh binds correctly even if the target skeleton is in a pose. Turn this off if the target skeleton has a different bind pose. |
+| Keep the original bind pose | Off by default. When it is off, the mesh keeps its shape and is bound to the target joints as they are now, so put the target skeleton in its bind pose before you import. When it is on, the tool copies the original bind pose: the mesh binds correctly even if the target skeleton is in a pose, but if the target joints are in different positions, the mesh moves and deforms to follow them. |
 
 ### Importing a file from a custom folder
 

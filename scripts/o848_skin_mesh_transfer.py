@@ -527,7 +527,7 @@ def import_meshes(
     path,
     mat_mode=MAT_USE_EXISTING,
     parent_mode=PARENT_BY_NAME,
-    copy_bind_matrix=True,
+    copy_bind_matrix=False,
     clash_mode=CLASH_RENAME_IMPORTED,
     new_suffix="_imp",
     old_suffix="_old",
@@ -1138,7 +1138,7 @@ def show_ui():
         numberOfCheckBoxes=1,
         label="",
         label1="Keep the original bind pose",
-        value1=True,
+        value1=False,  # 既定はオフ：意図しないメッシュの変形を防ぐ
         columnWidth2=(130, 220),
     )
     cmds.button(label="Import and Transfer", height=30, command=_on_import)
