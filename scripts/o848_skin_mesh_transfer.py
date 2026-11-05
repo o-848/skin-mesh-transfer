@@ -25,6 +25,7 @@ Released under the MIT License (see LICENSE)
 __version__ = "1.2.0"
 
 import json
+import math
 import os
 import traceback
 
@@ -523,6 +524,54 @@ def _target_parent(node, parent_mode, parent_uuid):
     return None
 
 
+POSE_POSITION_TOLERANCE = 0.001  # 位置のずれの許容値（シーンの単位、通常 cm）
+POSE_ROTATION_TOLERANCE = 0.01  # 回転のずれの許容値（度）
+
+
+class ImportCancelled(Exception):
+    """利用者が確認ダイアログで読み込みを取りやめた"""
+
+
+def bind_pose_differences(src_meshes):
+    """元のメッシュのバインド時の骨の位置と、移植先の同名の骨の今の位置を比べる。
+    移植先の骨に記録されたバインドポーズは使わない（当てにならない場合があるため）。
+    戻り値：[(骨の名前, 位置のずれ, 回転のずれ〔度〕)]（ずれの大きい順）"""
+    differences = {}
+    for src_mesh in src_meshes:
+        skin_cluster = _skin_cluster(src_mesh)
+        skin_fn = _skin_fn(skin_cluster)
+        for influence in skin_fn.influenceObjects():
+            try:
+                target_joint = _resolve_in_scene(influence.fullPathName())
+            except RuntimeError:
+                continue  # 同名の骨が複数ある → 移植の処理でエラーとして扱う
+            if not target_joint:
+                continue  # 足りない骨 → 移植の処理でエラーとして扱う
+            index = skin_fn.indexForInfluenceObject(influence)
+            bind_pre_matrix = om.MMatrix(
+                cmds.getAttr("{}.bindPreMatrix[{}]".format(skin_cluster, index))
+            )
+            src_bind = om.MTransformationMatrix(bind_pre_matrix.inverse())
+            selection = om.MSelectionList()
+            selection.add(target_joint)
+            target_now = om.MTransformationMatrix(selection.getDagPath(0).inclusiveMatrix())
+
+            distance = (
+                src_bind.translation(om.MSpace.kWorld) - target_now.translation(om.MSpace.kWorld)
+            ).length()
+            relative = src_bind.rotation(asQuaternion=True).inverse() * target_now.rotation(
+                asQuaternion=True
+            )
+            angle = math.degrees(2.0 * math.acos(min(1.0, abs(relative.w))))
+            if distance > POSE_POSITION_TOLERANCE or angle > POSE_ROTATION_TOLERANCE:
+                name = _basename(target_joint)
+                if name not in differences or differences[name][0] < distance:
+                    differences[name] = (distance, angle)
+    return sorted(
+        ((name, d, a) for name, (d, a) in differences.items()), key=lambda x: (-x[1], -x[2])
+    )
+
+
 def import_meshes(
     path,
     mat_mode=MAT_USE_EXISTING,
@@ -531,8 +580,12 @@ def import_meshes(
     clash_mode=CLASH_RENAME_IMPORTED,
     new_suffix="_imp",
     old_suffix="_old",
+    confirm_pose_difference=None,
 ):
     """ファイルを読み込み、中のスキン付きメッシュを移植先の骨に付け直す。
+    confirm_pose_difference：copy_bind_matrix がオフで、移植先の骨が元のバインド時の位置と
+    違うときに呼ぶ関数。ずれの一覧を受け取り、続けるなら True を返す。
+    取りやめた場合は ImportCancelled を送出する（読み込んだものは片付ける）。
     戻り値：(移植したメッシュの一覧, 失敗の一覧, _NameResolver)"""
     if not os.path.isfile(path):
         raise RuntimeError("File not found: " + path)
@@ -571,6 +624,13 @@ def import_meshes(
     done, errors = [], []
     shading_group_map = {}  # 読み込んだSG -> 差し替え先の既存SG
     try:
+        # Keep the original bind pose がオフのときは、移植先の骨の今の姿勢で付けるので、
+        # 移植先がポーズを取っていないか（骨の位置が元と違わないか）を先に確認する
+        if not copy_bind_matrix and confirm_pose_difference:
+            differences = bind_pose_differences(src_meshes)
+            if differences and not confirm_pose_difference(differences):
+                raise ImportCancelled()
+
         group_restorer = _GroupRestorer(name_resolver, parent_mode, parent_uuid)
         placed = []  # (一時NS内のメッシュのパス, 移植したメッシュの UUID)
         for src_mesh in src_meshes:
@@ -1243,6 +1303,30 @@ def _on_export(*_):
     )
 
 
+def _confirm_pose_difference(differences):
+    """移植先の骨が、元のバインド時の位置と違うときの確認ダイアログ。続けるなら True"""
+    shown = differences[:10]
+    lines = ["  {}: {:.3f}, {:.2f} deg".format(name, d, a) for name, d, a in shown]
+    if len(differences) > len(shown):
+        lines.append("  ... and {} more".format(len(differences) - len(shown)))
+    for name, d, a in differences:
+        print("[{}] POSE DIFF: {} {:.4f} {:.3f}deg".format(TOOL_NAME, name, d, a))
+    message = (
+        "{} joint(s) differ from the source bind pose:\n{}\n\n"
+        "The mesh keeps its shape and is bound to the current pose.\n"
+        "If the target is posed, go to the bind pose first.\nContinue?"
+    ).format(len(differences), "\n".join(lines))
+    answer = cmds.confirmDialog(
+        title="Import",
+        message=message,
+        button=["Continue", "Cancel"],
+        defaultButton="Cancel",
+        cancelButton="Cancel",
+        dismissString="Cancel",
+    )
+    return answer == "Continue"
+
+
 def _on_import(*_):
     """「Import and Transfer」ボタンの処理"""
     try:
@@ -1264,8 +1348,17 @@ def _on_import(*_):
     keep_bind_pose = cmds.checkBoxGrp("smt_opts", q=True, value1=True)
     try:
         done, errors, name_resolver = import_meshes(
-            path, mat_mode, parent_mode, keep_bind_pose, clash_mode, new_suffix, old_suffix
+            path,
+            mat_mode,
+            parent_mode,
+            keep_bind_pose,
+            clash_mode,
+            new_suffix,
+            old_suffix,
+            confirm_pose_difference=_confirm_pose_difference,
         )
+    except ImportCancelled:
+        return
     except Exception as error:
         cmds.confirmDialog(title="Import", message=str(error), button=["OK"])
         return

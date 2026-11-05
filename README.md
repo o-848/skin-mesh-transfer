@@ -102,6 +102,7 @@ The line under the options shows exactly where the file will be saved.
 
 ## Notes and limitations
 
+- When **Keep the original bind pose** is off, the tool compares the target joints with the joint positions stored in the exported file (the source bind pose). If any joint differs, the tool lists the joints and asks whether to continue. If the target is posed, cancel, go to the bind pose, and import again.
 - When you export a group, the tool recreates the group in the target scene. If a group with the same name already exists in the same place, the tool puts the meshes into that group instead of creating a new one.
 - With "Replace existing", the tool never renames joints, groups that contain joints, or locked or referenced nodes. In those cases it renames the imported node instead and lists it in the result.
 - The material option works separately from the name option, so you can, for example, take the new mesh but keep the existing materials.
