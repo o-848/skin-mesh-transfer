@@ -527,6 +527,12 @@ def _target_parent(node, parent_mode, parent_uuid):
 POSE_POSITION_TOLERANCE = 0.001  # 位置のずれの許容値（シーンの単位、通常 cm）
 POSE_ROTATION_TOLERANCE = 0.01  # 回転のずれの許容値（度）
 POSE_SCALE_TOLERANCE = 0.001  # スケールのずれの許容値
+# 確認画面に出すチャンネル：(名前, 小数点以下の桁数, 許容値)
+POSE_CHANNELS = (
+    [(axis, 3, POSE_POSITION_TOLERANCE) for axis in ("tx", "ty", "tz")]
+    + [(axis, 2, POSE_ROTATION_TOLERANCE) for axis in ("rx", "ry", "rz")]
+    + [(axis, 3, POSE_SCALE_TOLERANCE) for axis in ("sx", "sy", "sz")]
+)
 
 
 class ImportCancelled(Exception):
@@ -599,8 +605,9 @@ def bind_pose_differences(src_meshes):
         （移植先で、インフルエンスでない親が動いていると、そのずれはこの骨に出る）
     値は移植先の骨の Joint Orient・Rotate Axis・回転順に合わせて出す。
 
-    戻り値：[(骨の名前, (tx, ty, tz), (rx, ry, rz), (sx, sy, sz), Joint Orient が違うか)]
-    （移植先の今の値 − 元のバインド時の値。回転は度。ずれの大きい順）"""
+    戻り値：[(骨の名前, 元のバインド時の値, 移植先の今の値, 差, Joint Orient が違うか)]
+    値と差は POSE_CHANNELS の順（tx〜sz）の9個。差は 移植先の今の値 − 元のバインド時の値。
+    回転は度。ずれの大きい順"""
     bind_world = {}  # 一時NS内のインフルエンスのフルパス -> バインド時のワールド行列
     influences = []  # (一時NS内のインフルエンスのフルパス, 移植先の骨)
     for src_mesh in src_meshes:
@@ -636,32 +643,28 @@ def bind_pose_differences(src_meshes):
         else:
             src_local = bind_world[src_joint] * target_path.exclusiveMatrixInverse()
 
-        src_t, src_r, src_s = _channel_values(src_local, target_joint)
-        now_t, now_r, now_s = _channel_values(target_local, target_joint)
-        translate = tuple(a - b for a, b in zip(now_t, src_t))
-        rotate = tuple((a - b + 180.0) % 360.0 - 180.0 for a, b in zip(now_r, src_r))
-        scale = tuple(a - b for a, b in zip(now_s, src_s))
+        source = sum(_channel_values(src_local, target_joint), ())
+        target = sum(_channel_values(target_local, target_joint), ())
+        diff = tuple(b - a for a, b in zip(source, target))
+        # 回転の差は -180〜180 度に収める
+        diff = diff[:3] + tuple((v + 180.0) % 360.0 - 180.0 for v in diff[3:6]) + diff[6:]
 
-        if (
-            any(abs(v) > POSE_POSITION_TOLERANCE for v in translate)
-            or any(abs(v) > POSE_ROTATION_TOLERANCE for v in rotate)
-            or any(abs(v) > POSE_SCALE_TOLERANCE for v in scale)
-        ):
+        if any(abs(v) > channel[2] for v, channel in zip(diff, POSE_CHANNELS)):
             differences.append(
                 (
                     _basename(target_joint),
-                    translate,
-                    rotate,
-                    scale,
+                    source,
+                    target,
+                    diff,
                     _joint_orient_differs(src_joint, target_joint),
                 )
             )
     return sorted(
         differences,
         key=lambda x: (
-            -max(abs(v) for v in x[1]),
-            -max(abs(v) for v in x[2]),
-            -max(abs(v) for v in x[3]),
+            -max(abs(v) for v in x[3][0:3]),
+            -max(abs(v) for v in x[3][3:6]),
+            -max(abs(v) for v in x[3][6:9]),
         ),
     )
 
@@ -1397,41 +1400,46 @@ def _on_export(*_):
     )
 
 
-def _format_offsets(translate, rotate, scale, digits=3, mismatch_only=False):
-    """ずれを「tx 0.000  ry 5.34 ...」の形の文字列にする（-0.000 は 0.000 と書く）。
-    mismatch_only なら、許容値を超えた軸だけを書く"""
+def _format_channels(source, target, diff, extra_digits=0, mismatch_only=False):
+    """チャンネルごとに「tx 12.500 → 13.500」の形で、元の値と移植先の値を並べた文字列にする
+    （-0.000 は 0.000 と書く）。mismatch_only なら、許容値を超えたチャンネルだけを書く"""
 
     def number(value, places):
         text = "{:.{}f}".format(value, places)
         return text[1:] if text.startswith("-") and float(text) == 0 else text
 
-    axes = [
-        (axis, v, digits, POSE_POSITION_TOLERANCE) for axis, v in zip(("tx", "ty", "tz"), translate)
-    ]
-    axes += [(axis, v, 2, POSE_ROTATION_TOLERANCE) for axis, v in zip(("rx", "ry", "rz"), rotate)]
-    axes += [(axis, v, digits, POSE_SCALE_TOLERANCE) for axis, v in zip(("sx", "sy", "sz"), scale)]
-    if mismatch_only:
-        axes = [a for a in axes if abs(a[1]) > a[3]]
-    return "  ".join("{} {}".format(axis, number(v, places)) for axis, v, places, _ in axes)
+    parts = []
+    for (axis, places, tolerance), a, b, d in zip(POSE_CHANNELS, source, target, diff):
+        if mismatch_only and abs(d) <= tolerance:
+            continue
+        places += extra_digits
+        parts.append("{} {} \u2192 {}".format(axis, number(a, places), number(b, places)))
+    return "  ".join(parts)
 
 
 def _confirm_pose_difference(differences):
     """移植先の骨が、元のバインド時の値と違うときの確認ダイアログ。続けるなら True。
-    値はチャンネルボックスの値の差（移植先の今の値 − 元のバインド時の値）"""
+    ずれたチャンネルについて、元のバインド時の値 → 移植先の今の値 を並べて出す"""
     orient_note = "  (joint orient differs)"
     shown = differences[:10]
     lines = [
         "  {}: {}{}".format(
-            name, _format_offsets(t, r, s, mismatch_only=True), orient_note if orient else ""
+            name,
+            _format_channels(source, target, diff, mismatch_only=True),
+            orient_note if orient else "",
         )
-        for name, t, r, s, orient in shown
+        for name, source, target, diff, orient in shown
     ]
     if len(differences) > len(shown):
         lines.append("  ... and {} more".format(len(differences) - len(shown)))
-    for name, t, r, s, orient in differences:
+    # スクリプトエディタには、すべてのチャンネルを桁を増やして出す
+    for name, source, target, diff, orient in differences:
         print(
             "[{}] POSE DIFF: {}: {}{}".format(
-                TOOL_NAME, name, _format_offsets(t, r, s, 4), orient_note if orient else ""
+                TOOL_NAME,
+                name,
+                _format_channels(source, target, diff, extra_digits=1),
+                orient_note if orient else "",
             )
         )
     message = (
