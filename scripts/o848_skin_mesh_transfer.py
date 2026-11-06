@@ -526,58 +526,143 @@ def _target_parent(node, parent_mode, parent_uuid):
 
 POSE_POSITION_TOLERANCE = 0.001  # 位置のずれの許容値（シーンの単位、通常 cm）
 POSE_ROTATION_TOLERANCE = 0.01  # 回転のずれの許容値（度）
+POSE_SCALE_TOLERANCE = 0.001  # スケールのずれの許容値
 
 
 class ImportCancelled(Exception):
     """利用者が確認ダイアログで読み込みを取りやめた"""
 
 
+def _euler_matrix(values_deg, order=om.MEulerRotation.kXYZ):
+    """度で与えた3軸の回転（jointOrient、rotateAxis など）を行列にする"""
+    return om.MEulerRotation([math.radians(v) for v in values_deg], order).asMatrix()
+
+
+def _channel_values(local_matrix, joint):
+    """親から見た行列を、joint のチャンネルボックスの値（translate, rotate〔度〕, scale）に直す。
+    Joint Orient、Rotate Axis、回転順は joint の今の値を使う。
+    回転は、joint の今の Rotate の値に一番近い解を選ぶ（360 度回った値などを避けるため）。
+    骨の行列の並び：Scale × Rotate Axis × Rotate × Joint Orient × 親のスケールの打ち消し × Translate"""
+    translate = om.MTransformationMatrix(local_matrix).translation(om.MSpace.kTransform)
+    matrix = om.MMatrix(local_matrix)
+    for column in range(3):
+        matrix.setElement(3, column, 0.0)  # 平行移動を外し、回転とスケールだけにする
+
+    if cmds.nodeType(joint) == "joint":
+        parent = cmds.listRelatives(joint, parent=True, fullPath=True)
+        if (
+            parent
+            and cmds.getAttr(joint + ".segmentScaleCompensate")
+            and cmds.nodeType(parent[0]) == "joint"
+        ):
+            parent_scale = om.MTransformationMatrix()
+            parent_scale.setScale(cmds.getAttr(parent[0] + ".scale")[0], om.MSpace.kTransform)
+            matrix = matrix * parent_scale.asMatrix()
+        matrix = matrix * _euler_matrix(cmds.getAttr(joint + ".jointOrient")[0]).inverse()
+
+    transform = om.MTransformationMatrix(matrix)
+    scale = transform.scale(om.MSpace.kTransform)
+    rotate_axis = _euler_matrix(cmds.getAttr(joint + ".rotateAxis")[0])
+    rotate = rotate_axis.inverse() * transform.rotation(asQuaternion=True).asMatrix()
+
+    order = cmds.getAttr(joint + ".rotateOrder")
+    current = [math.radians(v) for v in cmds.getAttr(joint + ".rotate")[0]]
+    euler = om.MTransformationMatrix(rotate).rotation(asQuaternion=True).asEulerRotation()
+    euler.reorderIt(order)
+    euler.setToClosestSolution(om.MEulerRotation(current, order))
+    return (
+        (translate.x, translate.y, translate.z),
+        tuple(math.degrees(v) for v in (euler.x, euler.y, euler.z)),
+        tuple(scale),
+    )
+
+
+def _joint_orient_differs(src_joint, target_joint):
+    """元の骨と移植先の骨で、Joint Orient が違うか（どちらかが骨でなければ False）"""
+    if cmds.nodeType(src_joint) != "joint" or cmds.nodeType(target_joint) != "joint":
+        return False
+    src = _euler_matrix(cmds.getAttr(src_joint + ".jointOrient")[0])
+    target = _euler_matrix(cmds.getAttr(target_joint + ".jointOrient")[0])
+    relative = om.MTransformationMatrix(src.inverse() * target).rotation(asQuaternion=True)
+    angle = math.degrees(2.0 * math.acos(min(1.0, abs(relative.w))))
+    return angle > POSE_ROTATION_TOLERANCE
+
+
 def bind_pose_differences(src_meshes):
-    """元のメッシュのバインド時の骨の位置と、移植先の同名の骨の今の位置を比べる。
-    移植先の骨に記録されたバインドポーズは使わない（当てにならない場合があるため）。
-    戻り値：[(骨の名前, 位置のずれ, 回転のずれ〔度〕, (tx, ty, tz), (rx, ry, rz))]（ずれの大きい順）
-    tx〜rz はワールド空間でのずれ（回転は度、XYZ 順のオイラー角）"""
-    differences = {}
+    """移植先の骨のチャンネルボックスの値が、元のバインド時の値といくつ違うかを調べる。
+
+    元のバインド時の値は、skinCluster に記録された行列（bindPreMatrix）から求める。
+    書き出したファイルの骨の今の値（書き出し時のポーズ）は使わない。
+    移植先の骨に記録されたバインドポーズも使わない（当てにならない場合があるため）。
+      ・親の骨もインフルエンスなら：親から見た、元のバインド時の位置・向き
+      ・親がインフルエンスでなければ：移植先の今の親を基準にした、元のバインド時の位置・向き
+        （移植先で、インフルエンスでない親が動いていると、そのずれはこの骨に出る）
+    値は移植先の骨の Joint Orient・Rotate Axis・回転順に合わせて出す。
+
+    戻り値：[(骨の名前, (tx, ty, tz), (rx, ry, rz), (sx, sy, sz), Joint Orient が違うか)]
+    （移植先の今の値 − 元のバインド時の値。回転は度。ずれの大きい順）"""
+    bind_world = {}  # 一時NS内のインフルエンスのフルパス -> バインド時のワールド行列
+    influences = []  # (一時NS内のインフルエンスのフルパス, 移植先の骨)
     for src_mesh in src_meshes:
         skin_cluster = _skin_cluster(src_mesh)
         skin_fn = _skin_fn(skin_cluster)
         for influence in skin_fn.influenceObjects():
-            try:
-                target_joint = _resolve_in_scene(influence.fullPathName())
-            except RuntimeError:
-                continue  # 同名の骨が複数ある → 移植の処理でエラーとして扱う
-            if not target_joint:
-                continue  # 足りない骨 → 移植の処理でエラーとして扱う
+            path = influence.fullPathName()
+            if path in bind_world:
+                continue
             index = skin_fn.indexForInfluenceObject(influence)
             bind_pre_matrix = om.MMatrix(
                 cmds.getAttr("{}.bindPreMatrix[{}]".format(skin_cluster, index))
             )
-            src_bind = om.MTransformationMatrix(bind_pre_matrix.inverse())
-            selection = om.MSelectionList()
-            selection.add(target_joint)
-            target_now = om.MTransformationMatrix(selection.getDagPath(0).inclusiveMatrix())
+            bind_world[path] = bind_pre_matrix.inverse()
+            try:
+                target_joint = _resolve_in_scene(path)
+            except RuntimeError:
+                continue  # 同名の骨が複数ある → 移植の処理でエラーとして扱う
+            if target_joint:
+                influences.append((path, target_joint))
+            # 足りない骨 → 移植の処理でエラーとして扱う
 
-            offset = target_now.translation(om.MSpace.kWorld) - src_bind.translation(
-                om.MSpace.kWorld
+    differences = []
+    for src_joint, target_joint in influences:
+        selection = om.MSelectionList()
+        selection.add(target_joint)
+        target_path = selection.getDagPath(0)
+        target_local = target_path.inclusiveMatrix() * target_path.exclusiveMatrixInverse()
+
+        src_parent = cmds.listRelatives(src_joint, parent=True, fullPath=True)
+        if src_parent and src_parent[0] in bind_world:
+            src_local = bind_world[src_joint] * bind_world[src_parent[0]].inverse()
+        else:
+            src_local = bind_world[src_joint] * target_path.exclusiveMatrixInverse()
+
+        src_t, src_r, src_s = _channel_values(src_local, target_joint)
+        now_t, now_r, now_s = _channel_values(target_local, target_joint)
+        translate = tuple(a - b for a, b in zip(now_t, src_t))
+        rotate = tuple((a - b + 180.0) % 360.0 - 180.0 for a, b in zip(now_r, src_r))
+        scale = tuple(a - b for a, b in zip(now_s, src_s))
+
+        if (
+            any(abs(v) > POSE_POSITION_TOLERANCE for v in translate)
+            or any(abs(v) > POSE_ROTATION_TOLERANCE for v in rotate)
+            or any(abs(v) > POSE_SCALE_TOLERANCE for v in scale)
+        ):
+            differences.append(
+                (
+                    _basename(target_joint),
+                    translate,
+                    rotate,
+                    scale,
+                    _joint_orient_differs(src_joint, target_joint),
+                )
             )
-            distance = offset.length()
-            # 元のバインド時の向きから、今の向きまでの回転（ワールド空間）
-            relative = src_bind.rotation(asQuaternion=True).inverse() * target_now.rotation(
-                asQuaternion=True
-            )
-            angle = math.degrees(2.0 * math.acos(min(1.0, abs(relative.w))))
-            if distance > POSE_POSITION_TOLERANCE or angle > POSE_ROTATION_TOLERANCE:
-                name = _basename(target_joint)
-                if name not in differences or differences[name][0] < distance:
-                    euler = relative.asEulerRotation()
-                    differences[name] = (
-                        distance,
-                        angle,
-                        (offset.x, offset.y, offset.z),
-                        tuple(math.degrees(v) for v in (euler.x, euler.y, euler.z)),
-                    )
     return sorted(
-        ((name,) + values for name, values in differences.items()), key=lambda x: (-x[1], -x[2])
+        differences,
+        key=lambda x: (
+            -max(abs(v) for v in x[1]),
+            -max(abs(v) for v in x[2]),
+            -max(abs(v) for v in x[3]),
+        ),
     )
 
 
@@ -1312,10 +1397,9 @@ def _on_export(*_):
     )
 
 
-def _format_offsets(translate, rotate, digits=3, mismatch_only=False):
-    """ずれを「tx 0.000  ty 5.341 ...」の形の文字列にする（-0.000 は 0.000 と書く）。
-    mismatch_only なら、許容値を超えた軸だけを書く。
-    （軸ごとには許容値以内でも、合計で超えることがある。そのときは6軸すべてを書く）"""
+def _format_offsets(translate, rotate, scale, digits=3, mismatch_only=False):
+    """ずれを「tx 0.000  ry 5.34 ...」の形の文字列にする（-0.000 は 0.000 と書く）。
+    mismatch_only なら、許容値を超えた軸だけを書く"""
 
     def number(value, places):
         text = "{:.{}f}".format(value, places)
@@ -1325,25 +1409,33 @@ def _format_offsets(translate, rotate, digits=3, mismatch_only=False):
         (axis, v, digits, POSE_POSITION_TOLERANCE) for axis, v in zip(("tx", "ty", "tz"), translate)
     ]
     axes += [(axis, v, 2, POSE_ROTATION_TOLERANCE) for axis, v in zip(("rx", "ry", "rz"), rotate)]
+    axes += [(axis, v, digits, POSE_SCALE_TOLERANCE) for axis, v in zip(("sx", "sy", "sz"), scale)]
     if mismatch_only:
-        mismatched = [a for a in axes if abs(a[1]) > a[3]]
-        axes = mismatched or axes
+        axes = [a for a in axes if abs(a[1]) > a[3]]
     return "  ".join("{} {}".format(axis, number(v, places)) for axis, v, places, _ in axes)
 
 
 def _confirm_pose_difference(differences):
-    """移植先の骨が、元のバインド時の位置と違うときの確認ダイアログ。続けるなら True"""
+    """移植先の骨が、元のバインド時の値と違うときの確認ダイアログ。続けるなら True。
+    値はチャンネルボックスの値の差（移植先の今の値 − 元のバインド時の値）"""
+    orient_note = "  (joint orient differs)"
     shown = differences[:10]
     lines = [
-        "  {}: {}".format(name, _format_offsets(t, r, mismatch_only=True))
-        for name, _, _, t, r in shown
+        "  {}: {}{}".format(
+            name, _format_offsets(t, r, s, mismatch_only=True), orient_note if orient else ""
+        )
+        for name, t, r, s, orient in shown
     ]
     if len(differences) > len(shown):
         lines.append("  ... and {} more".format(len(differences) - len(shown)))
-    for name, _, _, t, r in differences:
-        print("[{}] POSE DIFF: {}: {}".format(TOOL_NAME, name, _format_offsets(t, r, 4)))
+    for name, t, r, s, orient in differences:
+        print(
+            "[{}] POSE DIFF: {}: {}{}".format(
+                TOOL_NAME, name, _format_offsets(t, r, s, 4), orient_note if orient else ""
+            )
+        )
     message = (
-        "{} joint(s) differ from the source bind pose (world space):\n{}\n\n"
+        "{} joint(s) differ from the source bind pose:\n{}\n\n"
         "The mesh keeps its shape and is bound to the current pose.\n"
         "If the target is posed, go to the bind pose first.\nContinue?"
     ).format(len(differences), "\n".join(lines))
