@@ -683,7 +683,35 @@ def import_meshes(
     confirm_pose_difference：copy_bind_matrix がオフで、移植先の骨が元のバインド時の位置と
     違うときに呼ぶ関数。ずれの一覧を受け取り、続けるなら True を返す。
     取りやめた場合は ImportCancelled を送出する（読み込んだものは片付ける）。
+    処理全体を Undo の1回分にまとめる（Undo 1回で読み込む前の状態に戻る）。
     戻り値：(移植したメッシュの一覧, 失敗の一覧, _NameResolver)"""
+    cmds.undoInfo(openChunk=True, chunkName="o848SkinMeshTransferImport")
+    try:
+        return _import_meshes(
+            path,
+            mat_mode,
+            parent_mode,
+            copy_bind_matrix,
+            clash_mode,
+            new_suffix,
+            old_suffix,
+            confirm_pose_difference,
+        )
+    finally:
+        cmds.undoInfo(closeChunk=True)
+
+
+def _import_meshes(
+    path,
+    mat_mode,
+    parent_mode,
+    copy_bind_matrix,
+    clash_mode,
+    new_suffix,
+    old_suffix,
+    confirm_pose_difference,
+):
+    """import_meshes の本体（引数と戻り値は import_meshes と同じ）"""
     if not os.path.isfile(path):
         raise RuntimeError("File not found: " + path)
 

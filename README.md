@@ -127,7 +127,7 @@ The line under the options shows exactly where the file will be saved.
 
 ## Version history
 
-- **1.3.0** — "Keep the original bind pose" is now off by default. When it is off, the tool compares the target joints with the source bind pose before importing, lists any joints that differ, and asks whether to continue.
+- **1.3.0** — "Keep the original bind pose" is now off by default. When it is off, the tool compares the target joints with the source bind pose before importing, lists any joints that differ, and asks whether to continue. One Undo now reverts the whole import.
 - **1.2.0** — When you export a group, the group is now imported too. A new option lets you replace an existing node with the same name: the imported node takes over the name, and the existing node is kept as `_old`. The material option now has three choices: use the existing material, use the imported material, or keep both. The node order of the source scene is kept. Fixed a bug that added `_imp` even when there was no name clash.
 - **1.1.0** — You can now select a group to export all the skinned meshes inside it. A new option lets you choose where the meshes go: under the matching parent, under the selected node, or at the top level of the scene. You can now import any exported file with "Import from: Another file". The UI text has been rewritten to be clearer. The unsaved-scene warning has been removed.
 - **1.0.0** — First release.
