@@ -1306,7 +1306,7 @@ def _on_export(*_):
 def _confirm_pose_difference(differences):
     """移植先の骨が、元のバインド時の位置と違うときの確認ダイアログ。続けるなら True"""
     shown = differences[:10]
-    lines = ["  {}: {:.3f}, {:.2f} deg".format(name, d, a) for name, d, a in shown]
+    lines = ["  {}: Translate {:.3f}, Rotate {:.2f} deg".format(name, d, a) for name, d, a in shown]
     if len(differences) > len(shown):
         lines.append("  ... and {} more".format(len(differences) - len(shown)))
     for name, d, a in differences:
