@@ -809,7 +809,12 @@ def _parent_uuid(node):
 
 def _restore_order(placed, group_restorer, name_resolver):
     """書き出し元の並び順を再現する（FBX のノード順を崩さないため）。
-    対象：Replace existing のときの全ノード、および新しく作ったグループの中身"""
+    対象：Replace existing のときの全ノード、および新しく作ったグループの中身。
+    ノードごとに、何を目印にどこへ動かしたか（動かさなかった理由）をスクリプトエディタに出す"""
+
+    def log(node, text):
+        print("[{}] ORDER: {} -> {}".format(TOOL_NAME, _basename(node), text))
+
     mapping = dict(group_restorer.restored)
     mapping.update(dict(placed))
     items = [
@@ -822,6 +827,7 @@ def _restore_order(placed, group_restorer, name_resolver):
 
     for temp_path, node_uid in items:
         if not cmds.ls(node_uid):
+            log(temp_path, "skipped (node no longer exists)")
             continue
         node = _from_uuid(node_uid)
         parent_uid = _parent_uuid(node)
@@ -829,6 +835,7 @@ def _restore_order(placed, group_restorer, name_resolver):
             name_resolver.mode == CLASH_RENAME_EXISTING
             or parent_uid in group_restorer.created_uuids
         ):
+            log(node, "skipped (Keep existing, parent was not created by the tool)")
             continue
         temp_parent = cmds.listRelatives(temp_path, parent=True, fullPath=True)
         source_siblings = (
@@ -837,6 +844,7 @@ def _restore_order(placed, group_restorer, name_resolver):
             else [path for path in _child_transforms(None) if _in_temp_ns(path)]
         )
         if temp_path not in source_siblings:
+            log(node, "skipped (not found among the source siblings)")
             continue
 
         # 書き出し元で直前にあったノードのうち、同じ親の下に移ってきているもの
@@ -857,17 +865,33 @@ def _restore_order(placed, group_restorer, name_resolver):
         other_siblings = [path for path in siblings if path != node]
         if anchor:
             target_index = other_siblings.index(anchor) + 1
+            reason = "after {} (source order)".format(_basename(anchor))
         else:
             old_uid = name_resolver.old_by_name.get(_basename(node))
             old_node = _from_uuid(old_uid) if old_uid and cmds.ls(old_uid) else None
             if old_node and _parent_uuid(old_node) == parent_uid:
                 target_index = other_siblings.index(old_node)  # 置き換えた古いノードの位置へ
+                reason = "at the position of {} (replaced node)".format(_basename(old_node))
             elif parent_uid in group_restorer.created_uuids:
                 target_index = 0  # 新しいグループでは先頭から
+                reason = "first in the new group"
             else:
+                if old_node:
+                    detail = "replaced node {} is under a different parent".format(
+                        _basename(old_node)
+                    )
+                elif old_uid:
+                    detail = "replaced node no longer exists"
+                else:
+                    detail = "no replaced node with the same name"
+                log(node, "skipped (no anchor; {})".format(detail))
                 continue
         if target_index != current_index:
             cmds.reorder(node, relative=target_index - current_index)
+        log(
+            node,
+            "{}: index {} -> {} of {}".format(reason, current_index, target_index, len(siblings)),
+        )
 
 
 def _transfer_mesh(src_mesh, name_resolver, group_restorer, copy_bind_matrix):
