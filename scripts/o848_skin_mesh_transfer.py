@@ -1160,7 +1160,7 @@ def show_ui():
         numberOfRadioButtons=3,
         labelArray3=["Use existing", "Use imported", "Keep both"],
         select=1,
-        columnWidth4=(130, 110, 110, 90),
+        columnWidth4=(130, 125, 125, 80),
     )
     cmds.radioButtonGrp(
         "smt_parent",
@@ -1168,7 +1168,7 @@ def show_ui():
         numberOfRadioButtons=3,
         labelArray3=["Matching parent", "Selected node", "World"],
         select=1,
-        columnWidth4=(130, 120, 100, 60),
+        columnWidth4=(130, 125, 125, 80),
     )
     cmds.radioButtonGrp(
         "smt_clash",
