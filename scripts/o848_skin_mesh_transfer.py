@@ -535,7 +535,8 @@ class ImportCancelled(Exception):
 def bind_pose_differences(src_meshes):
     """元のメッシュのバインド時の骨の位置と、移植先の同名の骨の今の位置を比べる。
     移植先の骨に記録されたバインドポーズは使わない（当てにならない場合があるため）。
-    戻り値：[(骨の名前, 位置のずれ, 回転のずれ〔度〕)]（ずれの大きい順）"""
+    戻り値：[(骨の名前, 位置のずれ, 回転のずれ〔度〕, (tx, ty, tz), (rx, ry, rz))]（ずれの大きい順）
+    tx〜rz はワールド空間でのずれ（回転は度、XYZ 順のオイラー角）"""
     differences = {}
     for src_mesh in src_meshes:
         skin_cluster = _skin_cluster(src_mesh)
@@ -556,9 +557,11 @@ def bind_pose_differences(src_meshes):
             selection.add(target_joint)
             target_now = om.MTransformationMatrix(selection.getDagPath(0).inclusiveMatrix())
 
-            distance = (
-                src_bind.translation(om.MSpace.kWorld) - target_now.translation(om.MSpace.kWorld)
-            ).length()
+            offset = target_now.translation(om.MSpace.kWorld) - src_bind.translation(
+                om.MSpace.kWorld
+            )
+            distance = offset.length()
+            # 元のバインド時の向きから、今の向きまでの回転（ワールド空間）
             relative = src_bind.rotation(asQuaternion=True).inverse() * target_now.rotation(
                 asQuaternion=True
             )
@@ -566,9 +569,15 @@ def bind_pose_differences(src_meshes):
             if distance > POSE_POSITION_TOLERANCE or angle > POSE_ROTATION_TOLERANCE:
                 name = _basename(target_joint)
                 if name not in differences or differences[name][0] < distance:
-                    differences[name] = (distance, angle)
+                    euler = relative.asEulerRotation()
+                    differences[name] = (
+                        distance,
+                        angle,
+                        (offset.x, offset.y, offset.z),
+                        tuple(math.degrees(v) for v in (euler.x, euler.y, euler.z)),
+                    )
     return sorted(
-        ((name, d, a) for name, (d, a) in differences.items()), key=lambda x: (-x[1], -x[2])
+        ((name,) + values for name, values in differences.items()), key=lambda x: (-x[1], -x[2])
     )
 
 
@@ -1303,16 +1312,30 @@ def _on_export(*_):
     )
 
 
+def _format_offsets(translate, rotate, digits=3):
+    """ずれを「tx 0.000  ty 5.341 ...」の形の文字列にする（-0.000 は 0.000 と書く）"""
+
+    def number(value, places):
+        text = "{:.{}f}".format(value, places)
+        return text[1:] if text.startswith("-") and float(text) == 0 else text
+
+    parts = [
+        "{} {}".format(axis, number(v, digits)) for axis, v in zip(("tx", "ty", "tz"), translate)
+    ]
+    parts += ["{} {}".format(axis, number(v, 2)) for axis, v in zip(("rx", "ry", "rz"), rotate)]
+    return "  ".join(parts)
+
+
 def _confirm_pose_difference(differences):
     """移植先の骨が、元のバインド時の位置と違うときの確認ダイアログ。続けるなら True"""
     shown = differences[:10]
-    lines = ["  {}: Translate {:.3f}, Rotate {:.2f} deg".format(name, d, a) for name, d, a in shown]
+    lines = ["  {}: {}".format(name, _format_offsets(t, r)) for name, _, _, t, r in shown]
     if len(differences) > len(shown):
         lines.append("  ... and {} more".format(len(differences) - len(shown)))
-    for name, d, a in differences:
-        print("[{}] POSE DIFF: {} {:.4f} {:.3f}deg".format(TOOL_NAME, name, d, a))
+    for name, _, _, t, r in differences:
+        print("[{}] POSE DIFF: {}: {}".format(TOOL_NAME, name, _format_offsets(t, r, 4)))
     message = (
-        "{} joint(s) differ from the source bind pose:\n{}\n\n"
+        "{} joint(s) differ from the source bind pose (world space):\n{}\n\n"
         "The mesh keeps its shape and is bound to the current pose.\n"
         "If the target is posed, go to the bind pose first.\nContinue?"
     ).format(len(differences), "\n".join(lines))
