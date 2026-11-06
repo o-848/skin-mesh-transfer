@@ -1312,24 +1312,32 @@ def _on_export(*_):
     )
 
 
-def _format_offsets(translate, rotate, digits=3):
-    """ずれを「tx 0.000  ty 5.341 ...」の形の文字列にする（-0.000 は 0.000 と書く）"""
+def _format_offsets(translate, rotate, digits=3, mismatch_only=False):
+    """ずれを「tx 0.000  ty 5.341 ...」の形の文字列にする（-0.000 は 0.000 と書く）。
+    mismatch_only なら、許容値を超えた軸だけを書く。
+    （軸ごとには許容値以内でも、合計で超えることがある。そのときは6軸すべてを書く）"""
 
     def number(value, places):
         text = "{:.{}f}".format(value, places)
         return text[1:] if text.startswith("-") and float(text) == 0 else text
 
-    parts = [
-        "{} {}".format(axis, number(v, digits)) for axis, v in zip(("tx", "ty", "tz"), translate)
+    axes = [
+        (axis, v, digits, POSE_POSITION_TOLERANCE) for axis, v in zip(("tx", "ty", "tz"), translate)
     ]
-    parts += ["{} {}".format(axis, number(v, 2)) for axis, v in zip(("rx", "ry", "rz"), rotate)]
-    return "  ".join(parts)
+    axes += [(axis, v, 2, POSE_ROTATION_TOLERANCE) for axis, v in zip(("rx", "ry", "rz"), rotate)]
+    if mismatch_only:
+        mismatched = [a for a in axes if abs(a[1]) > a[3]]
+        axes = mismatched or axes
+    return "  ".join("{} {}".format(axis, number(v, places)) for axis, v, places, _ in axes)
 
 
 def _confirm_pose_difference(differences):
     """移植先の骨が、元のバインド時の位置と違うときの確認ダイアログ。続けるなら True"""
     shown = differences[:10]
-    lines = ["  {}: {}".format(name, _format_offsets(t, r)) for name, _, _, t, r in shown]
+    lines = [
+        "  {}: {}".format(name, _format_offsets(t, r, mismatch_only=True))
+        for name, _, _, t, r in shown
+    ]
     if len(differences) > len(shown):
         lines.append("  ... and {} more".format(len(differences) - len(shown)))
     for name, _, _, t, r in differences:
